@@ -177,7 +177,10 @@ DECLARE
   payload     jsonb;
   action      text;
   user_id     text;
+  channel_id  text;
   request_id  text;
+  cmd_text    text;
+  cmd_parts   text[];
   req         capacity_requests;
 BEGIN
   -- Verify Slack request signature
@@ -197,8 +200,61 @@ BEGIN
 
   -- Route based on payload type
   IF params ? 'command' THEN
-    -- Slash command: /capacity create 32XL us-east-1 ...
-    RETURN json_build_object('response_type', 'in_channel', 'text', 'Slash command received. Use the API to create requests.');
+    user_id    := params->>'user_id';
+    channel_id := params->>'channel_id';
+    cmd_text   := trim(params->>'text');
+
+    -- Parse: create <size> <region> <quantity> <duration_days> [customer_name]
+    cmd_parts := string_to_array(cmd_text, ' ');
+
+    IF cmd_parts[1] IS NULL OR cmd_parts[1] = '' THEN
+      RETURN json_build_object(
+        'response_type', 'ephemeral',
+        'text', 'Usage: /capacity create <size> <region> <quantity> <duration_days> [customer_name]'
+      );
+    END IF;
+
+    IF cmd_parts[1] = 'create' THEN
+      -- Validate required arguments
+      IF array_length(cmd_parts, 1) < 5 THEN
+        RETURN json_build_object(
+          'response_type', 'ephemeral',
+          'text', 'Usage: /capacity create <size> <region> <quantity> <duration_days> [customer_name]'
+            || E'\nExample: /capacity create 32XL us-east-1 2 90 Acme Corp'
+        );
+      END IF;
+
+      req := create_capacity_request(
+        p_requester_user_id         := user_id,
+        p_commercial_owner_user_id  := NULL,
+        p_infra_owner_group         := NULL,
+        p_customer_ref              := jsonb_build_object(
+          'name', CASE
+            WHEN array_length(cmd_parts, 1) > 5
+              THEN array_to_string(cmd_parts[6:], ' ')
+            ELSE 'TBD'
+          END
+        ),
+        p_requested_size            := cmd_parts[2],
+        p_quantity                  := cmd_parts[4]::integer,
+        p_region                    := cmd_parts[3],
+        p_needed_by_date            := (current_date + (cmd_parts[5]::integer || ' days')::interval)::date,
+        p_expected_duration_days    := cmd_parts[5]::integer,
+        p_slack_channel_id          := channel_id
+      );
+
+      RETURN json_build_object(
+        'response_type', 'in_channel',
+        'text', format('Capacity request %s created: %s x %s in %s (%s days). State: %s',
+                       req.id, req.quantity, req.requested_size, req.region,
+                       req.expected_duration_days, req.state)
+      );
+    ELSE
+      RETURN json_build_object(
+        'response_type', 'ephemeral',
+        'text', format('Unknown subcommand: %s. Try: /capacity create <size> <region> <quantity> <duration_days>', cmd_parts[1])
+      );
+    END IF;
 
   ELSIF params ? 'payload' THEN
     -- Interactive payload (button click)

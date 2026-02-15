@@ -20,7 +20,7 @@
         <a href="queue.html" class="active">Queue <span class="nav-badge" id="queue-badge"></span></a>
         <a href="analytics.html">Analytics</a>
       </nav>
-      <span class="topbar-user" id="user-info"></span>
+      <span class="topbar-user"><span id="user-info"></span><button class="topbar-signout" onclick="signOut()" title="Sign out">Sign out</button></span>
     </header>
 
     <div id="auth" class="auth-card">
@@ -115,6 +115,11 @@
         msg.className = 'msg msg-error mt-2';
         msg.textContent = error.message;
       }
+    }
+
+    async function signOut() {
+      await sb.auth.signOut();
+      location.reload();
     }
 
     function getSlackUserId(user) {

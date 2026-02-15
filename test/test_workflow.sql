@@ -2334,6 +2334,893 @@ END;
 $$;
 
 -- ============================================================
+-- Setup for confirmation token tests: insert Vault secret
+-- ============================================================
+DO $$
+BEGIN
+  BEGIN
+    PERFORM vault.create_secret('test-confirmation-token-secret', 'CONFIRMATION_TOKEN_SECRET');
+  EXCEPTION WHEN unique_violation THEN NULL;
+  END;
+  RAISE NOTICE 'Setup: Confirmation token Vault secret inserted';
+END;
+$$;
+
+-- ============================================================
+-- Test 65: generate_confirmation_token returns 64-char hex string
+-- ============================================================
+DO $$
+DECLARE
+  token text;
+BEGIN
+  token := generate_confirmation_token('CR-2026-000001', now() + interval '7 days');
+
+  ASSERT token IS NOT NULL, 'Token should not be NULL';
+  ASSERT length(token) = 64, format('Expected 64-char hex string, got length %s', length(token));
+  ASSERT token ~ '^[0-9a-f]{64}$', format('Token should be lowercase hex, got %s', token);
+
+  RAISE NOTICE 'PASS: Test 65 - generate_confirmation_token returns 64-char hex string';
+END;
+$$;
+
+-- ============================================================
+-- Test 66: get_confirmation_request with valid token returns request data
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  token text;
+  expires_epoch bigint;
+  result jsonb;
+BEGIN
+  req := create_capacity_request(
+    'U_token1', 'U_comm_token1', 'infra-token1',
+    '{"org_id": "org_token1"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30,
+    5000, 7
+  );
+
+  expires_epoch := extract(epoch FROM now() + interval '7 days')::bigint;
+  token := generate_confirmation_token(req.id, to_timestamp(expires_epoch));
+
+  result := get_confirmation_request(req.id, token, expires_epoch);
+
+  ASSERT result IS NOT NULL, 'Result should not be NULL';
+  ASSERT result->>'id' = req.id, format('Expected id %s, got %s', req.id, result->>'id');
+  ASSERT result->>'state' IS NOT NULL, 'Result should have state';
+  ASSERT result->>'requested_size' = '32XL', format('Expected 32XL, got %s', result->>'requested_size');
+  ASSERT result->>'region' = 'us-east-1', format('Expected us-east-1, got %s', result->>'region');
+
+  RAISE NOTICE 'PASS: Test 66 - get_confirmation_request with valid token returns request data';
+END;
+$$;
+
+-- ============================================================
+-- Test 67: get_confirmation_request with expired token raises exception
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  token text;
+  past_epoch bigint;
+BEGIN
+  req := create_capacity_request(
+    'U_token2', 'U_comm_token2', 'infra-token2',
+    '{"org_id": "org_token2"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30
+  );
+
+  past_epoch := extract(epoch FROM now() - interval '1 hour')::bigint;
+  token := generate_confirmation_token(req.id, to_timestamp(past_epoch));
+
+  BEGIN
+    PERFORM get_confirmation_request(req.id, token, past_epoch);
+    ASSERT false, 'Should have raised exception for expired token';
+  EXCEPTION WHEN OTHERS THEN
+    ASSERT SQLERRM LIKE '%expired%', format('Expected expired error, got: %s', SQLERRM);
+  END;
+
+  RAISE NOTICE 'PASS: Test 67 - get_confirmation_request with expired token raises exception';
+END;
+$$;
+
+-- ============================================================
+-- Test 68: get_confirmation_request with tampered token raises exception
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  expires_epoch bigint;
+BEGIN
+  req := create_capacity_request(
+    'U_token3', 'U_comm_token3', 'infra-token3',
+    '{"org_id": "org_token3"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30
+  );
+
+  expires_epoch := extract(epoch FROM now() + interval '7 days')::bigint;
+
+  BEGIN
+    PERFORM get_confirmation_request(req.id, 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef', expires_epoch);
+    ASSERT false, 'Should have raised exception for tampered token';
+  EXCEPTION WHEN OTHERS THEN
+    ASSERT SQLERRM LIKE '%Invalid confirmation token%', format('Expected invalid token error, got: %s', SQLERRM);
+  END;
+
+  RAISE NOTICE 'PASS: Test 68 - get_confirmation_request with tampered token raises exception';
+END;
+$$;
+
+-- ============================================================
+-- Test 69: get_confirmation_request with nonexistent request_id raises exception
+-- ============================================================
+DO $$
+DECLARE
+  expires_epoch bigint;
+  token text;
+BEGIN
+  expires_epoch := extract(epoch FROM now() + interval '7 days')::bigint;
+  token := generate_confirmation_token('CR-2026-999999', to_timestamp(expires_epoch));
+
+  BEGIN
+    PERFORM get_confirmation_request('CR-2026-999999', token, expires_epoch);
+    ASSERT false, 'Should have raised exception for nonexistent request';
+  EXCEPTION WHEN OTHERS THEN
+    ASSERT SQLERRM LIKE '%not found%', format('Expected not found error, got: %s', SQLERRM);
+  END;
+
+  RAISE NOTICE 'PASS: Test 69 - get_confirmation_request with nonexistent request_id raises exception';
+END;
+$$;
+
+-- ============================================================
+-- Test 70: v_request_summary still returns rows (regression)
+-- ============================================================
+DO $$
+DECLARE
+  row_count integer;
+BEGIN
+  SELECT count(*) INTO row_count FROM v_request_summary;
+  ASSERT row_count > 0, format('v_request_summary should have rows, got %s', row_count);
+
+  RAISE NOTICE 'PASS: Test 70 - v_request_summary still returns rows (regression)';
+END;
+$$;
+
+-- ============================================================
+-- Test 71: v_request_events still returns rows with notes column (regression)
+-- ============================================================
+DO $$
+DECLARE
+  row_count integer;
+  has_notes boolean;
+BEGIN
+  SELECT count(*) INTO row_count FROM v_request_events;
+  ASSERT row_count > 0, format('v_request_events should have rows, got %s', row_count);
+
+  -- Verify notes column exists by selecting it
+  SELECT EXISTS(
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'v_request_events' AND column_name = 'notes'
+  ) INTO has_notes;
+  ASSERT has_notes, 'v_request_events should have notes column';
+
+  RAISE NOTICE 'PASS: Test 71 - v_request_events still returns rows with notes column (regression)';
+END;
+$$;
+
+-- ============================================================
+-- Test 72: All 5 observability views still return rows (regression)
+-- ============================================================
+DO $$
+DECLARE
+  row_count integer;
+BEGIN
+  SELECT count(*) INTO row_count FROM v_time_in_state;
+  ASSERT row_count > 0, format('v_time_in_state should have rows, got %s', row_count);
+
+  SELECT count(*) INTO row_count FROM v_approval_latency;
+  ASSERT row_count > 0, format('v_approval_latency should have rows, got %s', row_count);
+
+  SELECT count(*) INTO row_count FROM v_provisioning_duration;
+  ASSERT row_count > 0, format('v_provisioning_duration should have rows, got %s', row_count);
+
+  SELECT count(*) INTO row_count FROM v_terminal_state_counts;
+  ASSERT row_count > 0, format('v_terminal_state_counts should have rows, got %s', row_count);
+
+  SELECT count(*) INTO row_count FROM v_request_detail;
+  ASSERT row_count > 0, format('v_request_detail should have rows, got %s', row_count);
+
+  RAISE NOTICE 'PASS: Test 72 - All observability views still return rows (regression)';
+END;
+$$;
+
+-- ============================================================
+-- Test 73: compute_next_state CONFIRMATION_REMINDER_SENT returns same state
+-- ============================================================
+DO $$
+DECLARE
+  s capacity_request_state;
+BEGIN
+  s := compute_next_state('CUSTOMER_CONFIRMATION_REQUIRED', 'CONFIRMATION_REMINDER_SENT', true, true);
+  ASSERT s = 'CUSTOMER_CONFIRMATION_REQUIRED',
+    format('Expected CUSTOMER_CONFIRMATION_REQUIRED, got %s', s);
+
+  RAISE NOTICE 'PASS: Test 73 - compute_next_state CONFIRMATION_REMINDER_SENT returns same state';
+END;
+$$;
+
+-- ============================================================
+-- Test 74: CONFIRMATION_REMINDER_SENT in wrong state raises exception
+-- ============================================================
+DO $$
+BEGIN
+  BEGIN
+    PERFORM compute_next_state('UNDER_REVIEW', 'CONFIRMATION_REMINDER_SENT', true, true);
+    ASSERT false, 'Should have raised exception for reminder in wrong state';
+  EXCEPTION WHEN OTHERS THEN
+    ASSERT SQLERRM LIKE '%CONFIRMATION_REMINDER_SENT only valid%',
+      format('Expected validation error, got: %s', SQLERRM);
+  END;
+
+  BEGIN
+    PERFORM compute_next_state('PROVISIONING', 'CONFIRMATION_REMINDER_SENT', true, true);
+    ASSERT false, 'Should have raised exception for reminder in PROVISIONING';
+  EXCEPTION WHEN OTHERS THEN
+    NULL; -- expected
+  END;
+
+  RAISE NOTICE 'PASS: Test 74 - CONFIRMATION_REMINDER_SENT in wrong state raises exception';
+END;
+$$;
+
+-- ============================================================
+-- Test 75: apply_capacity_event with CONFIRMATION_REMINDER_SENT
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  event_count integer;
+  old_version integer;
+BEGIN
+  req := create_capacity_request(
+    'U_remind1', 'U_comm_remind1', 'infra-remind1',
+    '{"org_id": "org_remind1"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30,
+    5000, 7
+  );
+
+  req := apply_capacity_event(req.id, 'COMMERCIAL_APPROVED', 'user', 'U_comm_remind1');
+  req := apply_capacity_event(req.id, 'TECH_REVIEW_APPROVED', 'user', 'U_infra_remind1');
+  ASSERT req.state = 'CUSTOMER_CONFIRMATION_REQUIRED', 'Setup failed';
+
+  old_version := req.version;
+
+  req := apply_capacity_event(req.id, 'CONFIRMATION_REMINDER_SENT', 'cron', 'pg_cron_timer');
+  ASSERT req.state = 'CUSTOMER_CONFIRMATION_REQUIRED',
+    format('State should be unchanged, got %s', req.state);
+  ASSERT req.version = old_version + 1,
+    format('Version should increment, expected %s got %s', old_version + 1, req.version);
+
+  SELECT count(*) INTO event_count
+  FROM capacity_request_events
+  WHERE capacity_request_id = req.id
+    AND event_type = 'CONFIRMATION_REMINDER_SENT';
+  ASSERT event_count = 1, format('Expected 1 reminder event, got %s', event_count);
+
+  RAISE NOTICE 'PASS: Test 75 - apply_capacity_event with CONFIRMATION_REMINDER_SENT';
+END;
+$$;
+
+-- ============================================================
+-- Test 76: Timer sweep sends reminder when >50% deadline elapsed
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  reminder_count integer;
+BEGIN
+  req := create_capacity_request(
+    'U_timer1', 'U_comm_timer1', 'infra-timer1',
+    '{"org_id": "org_timer1"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30,
+    5000, 7, 'C_TIMER1'
+  );
+
+  req := apply_capacity_event(req.id, 'COMMERCIAL_APPROVED', 'user', 'U_comm_timer1');
+  req := apply_capacity_event(req.id, 'TECH_REVIEW_APPROVED', 'user', 'U_infra_timer1');
+  ASSERT req.state = 'CUSTOMER_CONFIRMATION_REQUIRED', 'Setup failed';
+
+  -- Manipulate updated_at and next_deadline_at to simulate >50% elapsed
+  -- Set updated_at to 5 days ago and deadline to 2 days from now (7-day window)
+  -- Midpoint = updated_at + 3.5 days = now() - 1.5 days, so now() is past midpoint
+  UPDATE capacity_requests
+  SET updated_at = now() - interval '5 days',
+      next_deadline_at = now() + interval '2 days'
+  WHERE id = req.id;
+
+  -- Run timer sweep
+  PERFORM run_capacity_request_timers();
+
+  SELECT count(*) INTO reminder_count
+  FROM capacity_request_events
+  WHERE capacity_request_id = req.id
+    AND event_type = 'CONFIRMATION_REMINDER_SENT';
+  ASSERT reminder_count = 1,
+    format('Expected 1 reminder after timer sweep, got %s', reminder_count);
+
+  RAISE NOTICE 'PASS: Test 76 - Timer sweep sends reminder when >50%% deadline elapsed';
+END;
+$$;
+
+-- ============================================================
+-- Test 77: Timer sweep does NOT send duplicate reminder
+-- ============================================================
+DO $$
+DECLARE
+  reminder_count integer;
+  req_id text;
+BEGIN
+  -- Use the request from Test 76 (it already has a reminder)
+  SELECT cr.id INTO req_id
+  FROM capacity_requests cr
+  WHERE cr.requester_user_id = 'U_timer1'
+    AND cr.state = 'CUSTOMER_CONFIRMATION_REQUIRED'
+  LIMIT 1;
+
+  ASSERT req_id IS NOT NULL, 'Setup: should find timer1 request';
+
+  -- Run timer sweep again
+  PERFORM run_capacity_request_timers();
+
+  SELECT count(*) INTO reminder_count
+  FROM capacity_request_events
+  WHERE capacity_request_id = req_id
+    AND event_type = 'CONFIRMATION_REMINDER_SENT';
+  ASSERT reminder_count = 1,
+    format('Expected still 1 reminder (no duplicate), got %s', reminder_count);
+
+  RAISE NOTICE 'PASS: Test 77 - Timer sweep does NOT send duplicate reminder';
+END;
+$$;
+
+-- ============================================================
+-- Test 78: Reminder creates outbox entry with 'Reminder' text
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  outbox_row record;
+BEGIN
+  req := create_capacity_request(
+    'U_remind2', 'U_comm_remind2', 'infra-remind2',
+    '{"org_id": "org_remind2"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30,
+    5000, 7, 'C_REMIND2'
+  );
+
+  req := apply_capacity_event(req.id, 'COMMERCIAL_APPROVED', 'user', 'U_comm_remind2');
+  req := apply_capacity_event(req.id, 'TECH_REVIEW_APPROVED', 'user', 'U_infra_remind2');
+  ASSERT req.state = 'CUSTOMER_CONFIRMATION_REQUIRED', 'Setup failed';
+
+  -- Apply reminder directly
+  req := apply_capacity_event(req.id, 'CONFIRMATION_REMINDER_SENT', 'cron', 'pg_cron_timer');
+
+  -- Check outbox for reminder text
+  SELECT * INTO outbox_row
+  FROM capacity_request_outbox
+  WHERE capacity_request_id = req.id
+    AND payload->>'text' LIKE '%Reminder%'
+  ORDER BY created_at DESC
+  LIMIT 1;
+
+  ASSERT outbox_row.id IS NOT NULL, 'Should have outbox entry with Reminder text';
+  ASSERT outbox_row.payload->>'text' LIKE '%Reminder%',
+    format('Outbox text should contain Reminder, got: %s', outbox_row.payload->>'text');
+
+  RAISE NOTICE 'PASS: Test 78 - Reminder creates outbox entry with Reminder text';
+END;
+$$;
+
+-- ============================================================
+-- Test 79: create_capacity_request with vp_approver_user_id stores it
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+BEGIN
+  req := create_capacity_request(
+    p_requester_user_id         := 'U_vpa_store1',
+    p_commercial_owner_user_id  := 'U_comm_vpa_s1',
+    p_infra_owner_group         := 'infra-vpa-s1',
+    p_customer_ref              := '{"org_id": "org_vpa_s1"}'::jsonb,
+    p_requested_size            := '32XL',
+    p_quantity                  := 1,
+    p_region                    := 'us-east-1',
+    p_needed_by_date            := '2026-03-01'::date,
+    p_expected_duration_days    := 30,
+    p_estimated_monthly_cost_usd := 100000,
+    p_confirmation_ttl_days     := 7,
+    p_slack_channel_id          := NULL,
+    p_vp_approver_user_id       := 'U_vp_boss'
+  );
+
+  ASSERT req.vp_approver_user_id = 'U_vp_boss',
+    format('Expected vp_approver_user_id U_vp_boss, got %s', req.vp_approver_user_id);
+
+  RAISE NOTICE 'PASS: Test 79 - create_capacity_request with vp_approver_user_id stores it';
+END;
+$$;
+
+-- ============================================================
+-- Test 80: create_capacity_request without vp_approver defaults to NULL
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+BEGIN
+  req := create_capacity_request(
+    'U_vpa_default', 'U_comm_vpa_d', 'infra-vpa-d',
+    '{"org_id": "org_vpa_d"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30,
+    5000, 7
+  );
+
+  ASSERT req.vp_approver_user_id IS NULL,
+    format('Expected NULL vp_approver_user_id, got %s', req.vp_approver_user_id);
+
+  RAISE NOTICE 'PASS: Test 80 - create_capacity_request without vp_approver defaults to NULL';
+END;
+$$;
+
+-- ============================================================
+-- Test 81: enqueue_slack_dm creates outbox row with user ID as channel
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  outbox_id uuid;
+  outbox_row record;
+  event_id uuid;
+BEGIN
+  req := create_capacity_request(
+    'U_dm1', 'U_comm_dm1', 'infra-dm1',
+    '{"org_id": "org_dm1"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30
+  );
+
+  SELECT id INTO event_id FROM capacity_request_events
+  WHERE capacity_request_id = req.id LIMIT 1;
+
+  outbox_id := enqueue_slack_dm(req.id, event_id, 'U_target_dm', 'Hello via DM');
+
+  ASSERT outbox_id IS NOT NULL, 'Should return outbox UUID';
+
+  SELECT * INTO outbox_row FROM capacity_request_outbox WHERE id = outbox_id;
+  ASSERT outbox_row.payload->>'channel' = 'U_target_dm',
+    format('Expected channel U_target_dm, got %s', outbox_row.payload->>'channel');
+  ASSERT outbox_row.payload->>'text' = 'Hello via DM',
+    format('Expected text Hello via DM, got %s', outbox_row.payload->>'text');
+
+  RAISE NOTICE 'PASS: Test 81 - enqueue_slack_dm creates outbox row with user ID as channel';
+END;
+$$;
+
+-- ============================================================
+-- Test 82: enqueue_slack_dm with NULL user ID returns NULL, no outbox row
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  outbox_id uuid;
+  event_id uuid;
+  outbox_count integer;
+BEGIN
+  req := create_capacity_request(
+    'U_dm2', 'U_comm_dm2', 'infra-dm2',
+    '{"org_id": "org_dm2"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30
+  );
+
+  SELECT id INTO event_id FROM capacity_request_events
+  WHERE capacity_request_id = req.id LIMIT 1;
+
+  SELECT count(*) INTO outbox_count FROM capacity_request_outbox WHERE capacity_request_id = req.id;
+
+  outbox_id := enqueue_slack_dm(req.id, event_id, NULL, 'Should not send');
+
+  ASSERT outbox_id IS NULL, 'Should return NULL for NULL user ID';
+
+  -- Also test empty string
+  outbox_id := enqueue_slack_dm(req.id, event_id, '', 'Should not send either');
+  ASSERT outbox_id IS NULL, 'Should return NULL for empty user ID';
+
+  RAISE NOTICE 'PASS: Test 82 - enqueue_slack_dm with NULL user ID returns NULL';
+END;
+$$;
+
+-- ============================================================
+-- Test 83: DM outbox entry created for commercial_owner on SUBMITTED -> UNDER_REVIEW
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  dm_row record;
+BEGIN
+  req := create_capacity_request(
+    'U_dm_test3', 'U_comm_dm_test3', 'infra-dm-t3',
+    '{"org_id": "org_dm_t3"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30,
+    5000, 7
+  );
+
+  -- The create call triggers SUBMITTED -> UNDER_REVIEW which should DM the commercial owner
+  SELECT * INTO dm_row
+  FROM capacity_request_outbox
+  WHERE capacity_request_id = req.id
+    AND payload->>'channel' = 'U_comm_dm_test3'
+    AND payload->>'text' LIKE '%commercial review%'
+  LIMIT 1;
+
+  ASSERT dm_row.id IS NOT NULL,
+    'Should have DM outbox entry for commercial owner on SUBMITTED -> UNDER_REVIEW';
+
+  RAISE NOTICE 'PASS: Test 83 - DM outbox entry created for commercial_owner on SUBMITTED -> UNDER_REVIEW';
+END;
+$$;
+
+-- ============================================================
+-- Test 84: DM outbox entry created for vp_approver when VP escalation needed
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  dm_row record;
+BEGIN
+  -- Create high-cost request with VP approver
+  req := create_capacity_request(
+    p_requester_user_id         := 'U_dm_vp1',
+    p_commercial_owner_user_id  := 'U_comm_dm_vp1',
+    p_infra_owner_group         := 'infra-dm-vp1',
+    p_customer_ref              := '{"org_id": "org_dm_vp1"}'::jsonb,
+    p_requested_size            := '32XL',
+    p_quantity                  := 10,
+    p_region                    := 'us-east-1',
+    p_needed_by_date            := '2026-03-01'::date,
+    p_expected_duration_days    := 90,
+    p_estimated_monthly_cost_usd := 100000,
+    p_confirmation_ttl_days     := 7,
+    p_slack_channel_id          := NULL,
+    p_vp_approver_user_id       := 'U_vp_dm_target'
+  );
+
+  -- Apply commercial + tech approval (VP still pending, triggers DM)
+  req := apply_capacity_event(req.id, 'COMMERCIAL_APPROVED', 'user', 'U_comm_dm_vp1');
+  req := apply_capacity_event(req.id, 'TECH_REVIEW_APPROVED', 'user', 'U_infra_dm_vp1');
+
+  -- State should stay UNDER_REVIEW (VP approval still needed)
+  ASSERT req.state = 'UNDER_REVIEW',
+    format('Expected UNDER_REVIEW (VP needed), got %s', req.state);
+
+  -- Check for VP DM
+  SELECT * INTO dm_row
+  FROM capacity_request_outbox
+  WHERE capacity_request_id = req.id
+    AND payload->>'channel' = 'U_vp_dm_target'
+    AND payload->>'text' LIKE '%VP approval%'
+  LIMIT 1;
+
+  ASSERT dm_row.id IS NOT NULL,
+    'Should have DM outbox entry for VP approver when escalation needed';
+
+  RAISE NOTICE 'PASS: Test 84 - DM outbox entry created for vp_approver when VP escalation needed';
+END;
+$$;
+
+-- ============================================================
+-- Test 85: get_sla_threshold_hours returns correct defaults
+-- ============================================================
+DO $$
+DECLARE
+  h numeric;
+BEGIN
+  h := get_sla_threshold_hours('UNDER_REVIEW');
+  ASSERT h = 48, format('Expected 48 for UNDER_REVIEW, got %s', h);
+
+  h := get_sla_threshold_hours('CUSTOMER_CONFIRMATION_REQUIRED');
+  ASSERT h = 72, format('Expected 72 for CUSTOMER_CONFIRMATION_REQUIRED, got %s', h);
+
+  h := get_sla_threshold_hours('PROVISIONING');
+  ASSERT h = 24, format('Expected 24 for PROVISIONING, got %s', h);
+
+  h := get_sla_threshold_hours('COMPLETED');
+  ASSERT h IS NULL, format('Expected NULL for COMPLETED, got %s', h);
+
+  h := get_sla_threshold_hours('SUBMITTED');
+  ASSERT h IS NULL, format('Expected NULL for SUBMITTED, got %s', h);
+
+  RAISE NOTICE 'PASS: Test 85 - get_sla_threshold_hours returns correct defaults';
+END;
+$$;
+
+-- ============================================================
+-- Test 86: v_sla_status returns 'ok' for a freshly created UNDER_REVIEW request
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  sla record;
+BEGIN
+  req := create_capacity_request(
+    'U_sla1', 'U_comm_sla1', 'infra-sla1',
+    '{"org_id": "org_sla1"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30,
+    5000, 7
+  );
+
+  SELECT * INTO sla FROM v_sla_status WHERE id = req.id;
+
+  ASSERT sla.id IS NOT NULL, 'Should find request in v_sla_status';
+  ASSERT sla.sla_status = 'ok', format('Expected ok, got %s', sla.sla_status);
+  ASSERT sla.sla_threshold_hours = 48, format('Expected 48h threshold, got %s', sla.sla_threshold_hours);
+
+  RAISE NOTICE 'PASS: Test 86 - v_sla_status returns ok for fresh UNDER_REVIEW request';
+END;
+$$;
+
+-- ============================================================
+-- Test 87: v_sla_status returns 'breached' when updated_at set >48h ago
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  sla record;
+BEGIN
+  req := create_capacity_request(
+    'U_sla2', 'U_comm_sla2', 'infra-sla2',
+    '{"org_id": "org_sla2"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30,
+    5000, 7
+  );
+
+  -- Set updated_at to 50 hours ago (> 48h SLA)
+  UPDATE capacity_requests SET updated_at = now() - interval '50 hours' WHERE id = req.id;
+
+  SELECT * INTO sla FROM v_sla_status WHERE id = req.id;
+
+  ASSERT sla.id IS NOT NULL, 'Should find request in v_sla_status';
+  ASSERT sla.sla_status = 'breached', format('Expected breached, got %s', sla.sla_status);
+
+  RAISE NOTICE 'PASS: Test 87 - v_sla_status returns breached when >48h elapsed';
+END;
+$$;
+
+-- ============================================================
+-- Test 88: v_sla_status returns 'at_risk' at 80% of threshold
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  sla record;
+BEGIN
+  req := create_capacity_request(
+    'U_sla3', 'U_comm_sla3', 'infra-sla3',
+    '{"org_id": "org_sla3"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30,
+    5000, 7
+  );
+
+  -- Set updated_at to 40 hours ago (83% of 48h, > 75% threshold)
+  UPDATE capacity_requests SET updated_at = now() - interval '40 hours' WHERE id = req.id;
+
+  SELECT * INTO sla FROM v_sla_status WHERE id = req.id;
+
+  ASSERT sla.id IS NOT NULL, 'Should find request in v_sla_status';
+  ASSERT sla.sla_status = 'at_risk', format('Expected at_risk, got %s', sla.sla_status);
+
+  RAISE NOTICE 'PASS: Test 88 - v_sla_status returns at_risk at 80%% of threshold';
+END;
+$$;
+
+-- ============================================================
+-- Test 89: v_sla_status excludes terminal-state requests
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  sla_count integer;
+BEGIN
+  req := create_capacity_request(
+    'U_sla4', 'U_comm_sla4', 'infra-sla4',
+    '{"org_id": "org_sla4"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30,
+    5000, 7
+  );
+
+  -- Reject the request (terminal state)
+  req := apply_capacity_event(req.id, 'COMMERCIAL_REJECTED', 'user', 'U_comm_sla4');
+  ASSERT req.state = 'REJECTED', 'Setup: should be REJECTED';
+
+  SELECT count(*) INTO sla_count FROM v_sla_status WHERE id = req.id;
+  ASSERT sla_count = 0,
+    format('Terminal state request should not appear in v_sla_status, got %s rows', sla_count);
+
+  RAISE NOTICE 'PASS: Test 89 - v_sla_status excludes terminal-state requests';
+END;
+$$;
+
+-- ============================================================
+-- Test 90: get_my_pending_actions returns commercial_review for assigned owner
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  action_row record;
+BEGIN
+  req := create_capacity_request(
+    'U_queue1', 'U_comm_queue1', 'infra-queue1',
+    '{"org_id": "org_queue1"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30,
+    5000, 7
+  );
+
+  SELECT * INTO action_row
+  FROM get_my_pending_actions('U_comm_queue1')
+  WHERE request_id = req.id;
+
+  ASSERT action_row.request_id IS NOT NULL,
+    'Should find pending action for commercial owner';
+  ASSERT action_row.action_needed = 'commercial_review',
+    format('Expected commercial_review, got %s', action_row.action_needed);
+
+  RAISE NOTICE 'PASS: Test 90 - get_my_pending_actions returns commercial_review for assigned owner';
+END;
+$$;
+
+-- ============================================================
+-- Test 91: get_my_pending_actions returns vp_approval for VP approver on escalated request
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  action_row record;
+BEGIN
+  req := create_capacity_request(
+    p_requester_user_id         := 'U_queue_vp1',
+    p_commercial_owner_user_id  := 'U_comm_queue_vp1',
+    p_infra_owner_group         := 'infra-queue-vp1',
+    p_customer_ref              := '{"org_id": "org_queue_vp1"}'::jsonb,
+    p_requested_size            := '32XL',
+    p_quantity                  := 10,
+    p_region                    := 'us-east-1',
+    p_needed_by_date            := '2026-03-01'::date,
+    p_expected_duration_days    := 90,
+    p_estimated_monthly_cost_usd := 100000,
+    p_confirmation_ttl_days     := 7,
+    p_slack_channel_id          := NULL,
+    p_vp_approver_user_id       := 'U_vp_queue_target'
+  );
+
+  SELECT * INTO action_row
+  FROM get_my_pending_actions('U_vp_queue_target')
+  WHERE request_id = req.id;
+
+  ASSERT action_row.request_id IS NOT NULL,
+    'Should find pending VP approval action';
+  ASSERT action_row.action_needed = 'vp_approval',
+    format('Expected vp_approval, got %s', action_row.action_needed);
+
+  RAISE NOTICE 'PASS: Test 91 - get_my_pending_actions returns vp_approval for VP approver';
+END;
+$$;
+
+-- ============================================================
+-- Test 92: get_my_pending_actions returns customer_confirmation
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  action_row record;
+BEGIN
+  req := create_capacity_request(
+    'U_queue_cust1', 'U_comm_queue_c1', 'infra-queue-c1',
+    '{"org_id": "org_queue_c1"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30,
+    5000, 7
+  );
+
+  req := apply_capacity_event(req.id, 'COMMERCIAL_APPROVED', 'user', 'U_comm_queue_c1');
+  req := apply_capacity_event(req.id, 'TECH_REVIEW_APPROVED', 'user', 'U_infra_queue_c1');
+  ASSERT req.state = 'CUSTOMER_CONFIRMATION_REQUIRED', 'Setup failed';
+
+  SELECT * INTO action_row
+  FROM get_my_pending_actions('U_queue_cust1')
+  WHERE request_id = req.id;
+
+  ASSERT action_row.request_id IS NOT NULL,
+    'Should find pending customer confirmation action';
+  ASSERT action_row.action_needed = 'customer_confirmation',
+    format('Expected customer_confirmation, got %s', action_row.action_needed);
+
+  RAISE NOTICE 'PASS: Test 92 - get_my_pending_actions returns customer_confirmation';
+END;
+$$;
+
+-- ============================================================
+-- Test 93: get_my_pending_actions returns empty for user with no pending actions
+-- ============================================================
+DO $$
+DECLARE
+  action_count integer;
+BEGIN
+  SELECT count(*) INTO action_count
+  FROM get_my_pending_actions('U_nobody_has_this_id');
+
+  ASSERT action_count = 0,
+    format('Expected 0 pending actions for unknown user, got %s', action_count);
+
+  RAISE NOTICE 'PASS: Test 93 - get_my_pending_actions returns empty for user with no pending actions';
+END;
+$$;
+
+-- ============================================================
+-- Test 94: get_my_pending_actions does NOT return already-approved actions
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  action_count integer;
+BEGIN
+  req := create_capacity_request(
+    'U_queue_done1', 'U_comm_queue_done1', 'infra-queue-d1',
+    '{"org_id": "org_queue_d1"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30,
+    5000, 7
+  );
+
+  -- Commercial owner approves
+  req := apply_capacity_event(req.id, 'COMMERCIAL_APPROVED', 'user', 'U_comm_queue_done1');
+
+  -- Commercial owner should no longer see this request as pending
+  SELECT count(*) INTO action_count
+  FROM get_my_pending_actions('U_comm_queue_done1')
+  WHERE request_id = req.id;
+
+  ASSERT action_count = 0,
+    format('Expected 0 (already approved), got %s', action_count);
+
+  RAISE NOTICE 'PASS: Test 94 - get_my_pending_actions does NOT return already-approved actions';
+END;
+$$;
+
+-- ============================================================
+-- Test 95: get_my_pending_actions includes sla_status column with 'ok' for fresh requests
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  action_row record;
+BEGIN
+  req := create_capacity_request(
+    'U_queue_sla1', 'U_comm_queue_sla1', 'infra-queue-sla1',
+    '{"org_id": "org_queue_sla1"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30,
+    5000, 7
+  );
+
+  SELECT * INTO action_row
+  FROM get_my_pending_actions('U_comm_queue_sla1')
+  WHERE request_id = req.id;
+
+  ASSERT action_row.request_id IS NOT NULL, 'Should find pending action';
+  ASSERT action_row.sla_status = 'ok',
+    format('Expected sla_status ok for fresh request, got %s', action_row.sla_status);
+
+  RAISE NOTICE 'PASS: Test 95 - get_my_pending_actions includes sla_status ok for fresh requests';
+END;
+$$;
+
+-- ============================================================
 -- Summary
 -- ============================================================
 DO $$

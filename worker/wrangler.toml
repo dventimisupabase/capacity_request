@@ -1,0 +1,9 @@
+name = "capacity-request-slack-proxy"
+main = "src/index.js"
+compatibility_date = "2026-02-14"
+
+# Set secrets via: wrangler secret put SUPABASE_URL
+#                  wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+# Or use .dev.vars for local development:
+#   SUPABASE_URL=https://<project>.supabase.co
+#   SUPABASE_SERVICE_ROLE_KEY=<service-role-key>

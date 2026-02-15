@@ -2164,6 +2164,176 @@ END;
 $$;
 
 -- ============================================================
+-- Test 60: Duplicate idempotency key returns existing state, no new event
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  req2 capacity_requests;
+  event_count_before integer;
+  event_count_after integer;
+BEGIN
+  req := create_capacity_request(
+    'U_idem1', 'U_comm_idem1', 'infra-idem1',
+    '{"org_id": "org_idem1"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30,
+    5000, 7
+  );
+
+  -- First call with idempotency key
+  req := apply_capacity_event(req.id, 'COMMERCIAL_APPROVED', 'user', 'U_comm_idem1', '{}'::jsonb, 'idem-key-1');
+
+  SELECT count(*) INTO event_count_before FROM capacity_request_events WHERE capacity_request_id = req.id;
+
+  -- Second call with same idempotency key — should be a no-op
+  req2 := apply_capacity_event(req.id, 'COMMERCIAL_APPROVED', 'user', 'U_comm_idem1', '{}'::jsonb, 'idem-key-1');
+
+  SELECT count(*) INTO event_count_after FROM capacity_request_events WHERE capacity_request_id = req.id;
+
+  ASSERT event_count_after = event_count_before,
+    format('Expected no new event, before=%s after=%s', event_count_before, event_count_after);
+  ASSERT req2.version = req.version,
+    format('Expected same version, got %s vs %s', req2.version, req.version);
+
+  RAISE NOTICE 'PASS: Test 60 - Duplicate idempotency key returns existing state, no new event';
+END;
+$$;
+
+-- ============================================================
+-- Test 61: Different idempotency keys create separate events
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  event_count integer;
+BEGIN
+  req := create_capacity_request(
+    'U_idem2', 'U_comm_idem2', 'infra-idem2',
+    '{"org_id": "org_idem2"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30,
+    5000, 7
+  );
+
+  req := apply_capacity_event(req.id, 'COMMERCIAL_APPROVED', 'user', 'U_comm_idem2', '{}'::jsonb, 'idem-key-2a');
+  req := apply_capacity_event(req.id, 'TECH_REVIEW_APPROVED', 'user', 'U_infra_idem2', '{}'::jsonb, 'idem-key-2b');
+
+  SELECT count(*) INTO event_count FROM capacity_request_events WHERE capacity_request_id = req.id;
+
+  -- REQUEST_SUBMITTED (from create) + COMMERCIAL_APPROVED + TECH_REVIEW_APPROVED = 3
+  ASSERT event_count = 3,
+    format('Expected 3 events, got %s', event_count);
+  ASSERT req.state = 'CUSTOMER_CONFIRMATION_REQUIRED',
+    format('Expected CUSTOMER_CONFIRMATION_REQUIRED, got %s', req.state);
+
+  RAISE NOTICE 'PASS: Test 61 - Different idempotency keys create separate events';
+END;
+$$;
+
+-- ============================================================
+-- Test 62: Notes stored on event and visible in v_request_events
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  event_notes text;
+BEGIN
+  req := create_capacity_request(
+    'U_notes1', 'U_comm_notes1', 'infra-notes1',
+    '{"org_id": "org_notes1"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30,
+    5000, 7
+  );
+
+  req := apply_capacity_event(
+    req.id, 'COMMERCIAL_APPROVED', 'user', 'U_comm_notes1',
+    '{}'::jsonb, NULL, 'Budget confirmed with finance'
+  );
+
+  SELECT notes INTO event_notes
+    FROM v_request_events
+    WHERE capacity_request_id = req.id
+      AND event_type = 'COMMERCIAL_APPROVED';
+
+  ASSERT event_notes = 'Budget confirmed with finance',
+    format('Expected notes text, got: %s', event_notes);
+
+  RAISE NOTICE 'PASS: Test 62 - Notes stored on event and visible in v_request_events';
+END;
+$$;
+
+-- ============================================================
+-- Test 63: Backward compat — callers with 4-5 args still work
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  evt_key text;
+  evt_notes text;
+BEGIN
+  req := create_capacity_request(
+    'U_bc1', 'U_comm_bc1', 'infra-bc1',
+    '{"org_id": "org_bc1"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30,
+    5000, 7
+  );
+
+  -- 4-arg call (payload defaults to '{}')
+  req := apply_capacity_event(req.id, 'COMMERCIAL_APPROVED', 'user', 'U_comm_bc1');
+
+  -- 5-arg call (explicit payload, idempotency_key and notes default to NULL)
+  req := apply_capacity_event(req.id, 'TECH_REVIEW_APPROVED', 'user', 'U_infra_bc1', '{"source": "test"}'::jsonb);
+
+  -- Verify new columns are NULL
+  SELECT idempotency_key, notes INTO evt_key, evt_notes
+    FROM capacity_request_events
+    WHERE capacity_request_id = req.id
+      AND event_type = 'COMMERCIAL_APPROVED';
+
+  ASSERT evt_key IS NULL, format('Expected NULL idempotency_key, got: %s', evt_key);
+  ASSERT evt_notes IS NULL, format('Expected NULL notes, got: %s', evt_notes);
+
+  -- Verify state advanced correctly
+  ASSERT req.state = 'CUSTOMER_CONFIRMATION_REQUIRED',
+    format('Expected CUSTOMER_CONFIRMATION_REQUIRED, got %s', req.state);
+
+  RAISE NOTICE 'PASS: Test 63 - Backward compat with 4-5 arg calls';
+END;
+$$;
+
+-- ============================================================
+-- Test 64: Multiple NULL idempotency keys don't conflict
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  event_count integer;
+BEGIN
+  req := create_capacity_request(
+    'U_null1', 'U_comm_null1', 'infra-null1',
+    '{"org_id": "org_null1"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30,
+    5000, 7
+  );
+
+  -- Full workflow with no idempotency keys (all NULL)
+  req := apply_capacity_event(req.id, 'COMMERCIAL_APPROVED', 'user', 'U_comm_null1');
+  req := apply_capacity_event(req.id, 'TECH_REVIEW_APPROVED', 'user', 'U_infra_null1');
+  req := apply_capacity_event(req.id, 'CUSTOMER_CONFIRMED', 'user', 'U_cust_null1');
+  req := apply_capacity_event(req.id, 'PROVISIONING_COMPLETE', 'system', 'provisioner');
+
+  SELECT count(*) INTO event_count FROM capacity_request_events WHERE capacity_request_id = req.id;
+
+  -- REQUEST_SUBMITTED + 4 events = 5
+  ASSERT event_count = 5,
+    format('Expected 5 events with NULL keys, got %s', event_count);
+  ASSERT req.state = 'COMPLETED',
+    format('Expected COMPLETED, got %s', req.state);
+
+  RAISE NOTICE 'PASS: Test 64 - Multiple NULL idempotency keys coexist without conflict';
+END;
+$$;
+
+-- ============================================================
 -- Summary
 -- ============================================================
 DO $$

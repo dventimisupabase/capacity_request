@@ -96,11 +96,18 @@
     async function signIn() {
       const email = document.getElementById('email').value.trim();
       if (!email) return;
-      const { error } = await sb.auth.signInWithOtp({ email });
       const msg = document.getElementById('auth-msg');
-      msg.classList.remove('hidden');
-      msg.className = error ? 'msg msg-error mt-2' : 'msg msg-success mt-2';
-      msg.textContent = error ? error.message : 'Check your email for the magic link.';
+      try {
+        const { error } = await sb.auth.signInWithOtp({ email });
+        msg.classList.remove('hidden');
+        msg.className = error ? 'msg msg-error mt-2' : 'msg msg-success mt-2';
+        msg.textContent = error ? error.message : 'Check your email for the magic link.';
+      } catch (e) {
+        console.error('signIn error:', e);
+        msg.classList.remove('hidden');
+        msg.className = 'msg msg-error mt-2';
+        msg.textContent = e.message || 'Failed to send magic link. Please try again.';
+      }
     }
 
     async function showApp(user) {

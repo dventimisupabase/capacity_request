@@ -22,9 +22,11 @@ Requests are created via a Slack slash command (`/capacity`) or the web UI. They
 - **Transactional outbox** -- reliable at-least-once Slack message delivery via pg_cron, no lost notifications
 - **VP escalation** -- requests above a configurable cost threshold (default $50k, stored in Vault) require VP approval before proceeding
 - **Customer confirmation** -- time-boxed confirmation step with automatic expiration via pg_cron timer sweep
-- **Web dashboard** -- Vercel-hosted UI with workflow stepper visualization, operator guidance, request detail with event timeline
+- **Web dashboard** -- Vercel-hosted UI with workflow stepper visualization, operator guidance, approval queue, analytics charts, and request detail with event timeline
+- **Unified identity** -- Slack OAuth (OIDC) links Slack user IDs across web and bot interactions; one identity everywhere
 - **Provisioning webhook** -- external systems call an API to mark requests as completed or failed, secured with API key verification
 - **Row-level security** -- requesters see their own requests, commercial owners see assigned, infra groups see assigned, service role bypasses all
+- **SLA tracking** -- per-action SLA status (on track / at risk / breached) surfaced in the approval queue
 - **Observability views** -- time-in-state, approval latency, provisioning duration, terminal state counts
 
 ## Architecture
@@ -39,7 +41,7 @@ Everything runs inside Supabase (PostgreSQL + Edge Functions):
 | Slack proxy | Deno edge function (signature verification, modal opening, request routing) |
 | Provisioning proxy | Deno edge function (API key forwarding) |
 | Web UI | Static HTML/CSS/JS served via Vercel |
-| Auth | Supabase Auth with magic link (OTP) |
+| Auth | Supabase Auth with Slack OAuth (OIDC) |
 | Secrets | Supabase Vault (Slack tokens, signing secret, escalation threshold, provisioning API key) |
 
 ## Project Structure
@@ -48,27 +50,31 @@ Everything runs inside Supabase (PostgreSQL + Edge Functions):
 capacity_request/
 ├── supabase/
 │   ├── config.toml                  # Supabase project config
-│   ├── migrations/                  # 29 SQL migrations (schema, functions, cron jobs)
+│   ├── migrations/                  # 37 SQL migrations (schema, functions, cron jobs)
 │   │   ├── 20260214000001_extensions_and_enums.sql
 │   │   ├── 20260214000002_tables_and_indexes.sql
 │   │   ├── 20260214000003_core_functions.sql
 │   │   ├── ...
-│   │   └── 20260216000014_workflow_visualization.sql
+│   │   └── 20260216000026_drop_static_pages.sql
 │   ├── functions/
 │   │   ├── slack-proxy/             # Slack webhook handler (slash commands, modals, buttons)
 │   │   ├── provisioning-proxy/      # External provisioning webhook
 │   │   └── www/                     # Static file server (legacy, now on Vercel)
 │   └── templates/
-│       └── magic_link.html          # Branded magic link email
+│       └── magic_link.html          # Branded email template
 ├── www/                             # Web UI (deployed to Vercel)
-│   ├── index.html                   # Dashboard -- request list
+│   ├── auth.js                      # Shared auth & utility functions
+│   ├── config.js                    # Supabase credentials (generated at build)
+│   ├── style.css                    # Shared styles
+│   ├── index.html                   # Dashboard — request list with filters
 │   ├── detail.html                  # Request detail with stepper, timeline, actions
 │   ├── new.html                     # Self-service request creation form
 │   ├── confirm.html                 # Customer confirmation page
-│   ├── style.css                    # Shared styles
-│   └── config.js                    # Supabase credentials (generated at build)
+│   ├── queue.html                   # Approval queue with SLA indicators
+│   ├── analytics.html               # Charts: state distribution, latency, cost, volume
+│   └── about.html                   # Project overview / infographic
 ├── test/
-│   └── test_workflow.sql            # 59 SQL tests covering state machine, transitions, views
+│   └── test_workflow.sql            # 95 SQL tests covering state machine, transitions, views
 ├── SETUP.md                         # Slack app setup and deployment guide
 ├── PRD.md                           # Phase 6 product requirements
 └── vercel.json                      # Vercel deployment config
@@ -150,7 +156,7 @@ See [SETUP.md](SETUP.md) for the full Slack app configuration walkthrough.
 
 ## Testing
 
-The test suite covers the state machine, transitions, event types, approval flags, VP escalation, observability views, workflow visualization, and operator guidance:
+The test suite covers the state machine, transitions, event types, approval flags, VP escalation, SLA tracking, observability views, workflow visualization, and operator guidance:
 
 ```bash
 psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
@@ -158,18 +164,21 @@ psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
   -f test/test_workflow.sql
 ```
 
-59 tests, all run inside a transaction that rolls back (no persistent side effects).
+95 tests, all run inside a transaction that rolls back (no persistent side effects).
 
 ## Web UI
 
 Hosted at [capreq.vercel.app](https://capreq.vercel.app). Pages:
 
-- **Dashboard** (`index.html`) -- lists all requests with state badges, links to detail
-- **Detail** (`detail.html`) -- workflow stepper showing current position, approval status, operator guidance, event timeline, action buttons
+- **Dashboard** (`index.html`) -- lists all requests with state badges, filtering by state/region/date, and links to detail
+- **Detail** (`detail.html`) -- workflow stepper showing current position, approval sub-checks, operator guidance, event timeline, action buttons
 - **New Request** (`new.html`) -- form to create a request (size, region, quantity, duration, needed-by date, cost, customer)
 - **Confirm** (`confirm.html`) -- customer-facing page to confirm or decline a request
+- **Queue** (`queue.html`) -- personal approval queue with SLA indicators and inline approve/reject buttons
+- **Analytics** (`analytics.html`) -- charts for state distribution, approval latency, cost by region, request volume, time-in-state, VP escalation rate
+- **About** (`about.html`) -- project overview infographic
 
-Authentication via Supabase magic link (email OTP).
+Authentication via Slack OAuth (OIDC) through Supabase Auth, providing unified identity across Slack and web.
 
 ## Slack Commands
 

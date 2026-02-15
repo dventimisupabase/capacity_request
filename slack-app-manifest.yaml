@@ -18,7 +18,7 @@ features:
     always_online: true
   slash_commands:
     - command: /capacity
-      url: https://YOUR_PROXY_URL
+      url: https://oandzthkyemwojhebqwc.supabase.co/functions/v1/slack-proxy
       description: Create or manage capacity requests
       usage_hint: "create 32XL us-east-1 2 90"
       should_escape: false
@@ -32,7 +32,7 @@ oauth_config:
 settings:
   interactivity:
     is_enabled: true
-    request_url: https://YOUR_PROXY_URL
+    request_url: https://oandzthkyemwojhebqwc.supabase.co/functions/v1/slack-proxy
   org_deploy_enabled: false
   socket_mode_enabled: false
   token_rotation_enabled: false

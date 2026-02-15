@@ -1,0 +1,38 @@
+# Slack App Manifest for Capacity Request Workflow
+# Import at: https://api.slack.com/apps → Create New App → From a manifest
+#
+# After creating the app:
+# 1. Install to workspace under "Install App"
+# 2. Copy the Bot User OAuth Token (xoxb-...) → store as SLACK_BOT_TOKEN in Supabase Vault
+# 3. Copy the Signing Secret (from Basic Information) → store as SLACK_SIGNING_SECRET in Supabase Vault
+# 4. Replace YOUR_PROXY_URL below with your Cloudflare Worker or Supabase Edge Function URL
+
+display_information:
+  name: Capacity Request Bot
+  description: Manages large instance capacity request workflows with approval gates and lifecycle enforcement.
+  background_color: "#1a1a2e"
+
+features:
+  bot_user:
+    display_name: Capacity Request
+    always_online: true
+  slash_commands:
+    - command: /capacity
+      url: https://YOUR_PROXY_URL
+      description: Create or manage capacity requests
+      usage_hint: "create 32XL us-east-1 2 90"
+      should_escape: false
+
+oauth_config:
+  scopes:
+    bot:
+      - chat:write
+      - commands
+
+settings:
+  interactivity:
+    is_enabled: true
+    request_url: https://YOUR_PROXY_URL
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false

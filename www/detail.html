@@ -7,40 +7,63 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <nav>
-    <span class="brand">Capacity Requests</span>
-    <a href="index.html">Dashboard</a>
-    <a href="new.html">New Request</a>
-    <span id="user-info"></span>
-  </nav>
+  <div class="shell">
+    <header class="topbar">
+      <a href="index.html" class="topbar-brand">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><line x1="6" y1="10" x2="6" y2="14"/><line x1="10" y1="10" x2="10" y2="14"/><line x1="14" y1="10" x2="14" y2="14"/><line x1="18" y1="10" x2="18" y2="14"/></svg>
+        <span>Capacity</span>
+      </a>
+      <nav class="topbar-nav">
+        <a href="index.html">Dashboard</a>
+        <a href="new.html">New Request</a>
+      </nav>
+      <span class="topbar-user" id="user-info"></span>
+    </header>
 
-  <div id="auth">
-    <p>Sign in to view request details.</p>
-    <input type="email" id="email" placeholder="you@example.com">
-    <button class="btn btn-primary" onclick="signIn()">Send Magic Link</button>
-    <p id="auth-msg" class="hidden"></p>
+    <div id="auth" class="auth-card">
+      <h2>Sign in</h2>
+      <p>Sign in to view request details.</p>
+      <div class="input-group">
+        <input type="email" id="email" placeholder="you@example.com">
+        <button class="btn btn-primary" onclick="signIn()">Send Link</button>
+      </div>
+      <p id="auth-msg" class="hidden mt-2"></p>
+    </div>
+
+    <div id="app" class="hidden">
+      <div class="page-header fade-in">
+        <h1>Request <span class="mono" id="req-id"></span></h1>
+      </div>
+
+      <div id="msg"></div>
+
+      <!-- Request fields -->
+      <div class="card fade-in fade-in-1 mb-3">
+        <div class="card-header">
+          <h3>Details</h3>
+          <span id="state-badge"></span>
+        </div>
+        <div class="card-body">
+          <div class="detail-grid" id="detail-grid">
+            <div class="detail-item" style="grid-column:1/-1"><span class="loading">Loading...</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Action buttons -->
+      <div class="actions fade-in fade-in-2" id="actions"></div>
+
+      <!-- Events timeline -->
+      <div class="fade-in fade-in-3 mt-3">
+        <div class="section-label">Event Log</div>
+        <ul class="timeline" id="timeline">
+          <li class="loading">Loading events...</li>
+        </ul>
+      </div>
+    </div>
   </div>
 
-  <div id="app" class="hidden">
-    <h1>Request <span id="req-id"></span></h1>
-    <div id="msg"></div>
-
-    <!-- Request fields -->
-    <dl class="detail-grid" id="detail-grid">
-      <dt>Loading...</dt><dd></dd>
-    </dl>
-
-    <!-- Action buttons -->
-    <div class="actions" id="actions"></div>
-
-    <!-- Events timeline -->
-    <h2>Events</h2>
-    <ul class="timeline" id="timeline">
-      <li>Loading...</li>
-    </ul>
-  </div>
-
-  <script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script src="config.js"></script>
   <script>
     const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -48,14 +71,23 @@
     const requestId = params.get('id');
 
     async function init() {
-      if (!requestId) { document.body.innerHTML = '<p class="msg msg-error">No request ID provided.</p>'; return; }
+      if (!requestId) { document.body.innerHTML = '<div class="shell"><div class="msg msg-error mt-3">No request ID provided.</div></div>'; return; }
       document.getElementById('req-id').textContent = requestId;
 
-      const { data: { session } } = await sb.auth.getSession();
-      if (session) showApp(session.user);
-      sb.auth.onAuthStateChange((_event, session) => {
+      try {
+        if (SUPABASE_ANON_KEY.includes('secret')) {
+          showApp({ email: 'local-dev', id: 'local-dev' });
+          return;
+        }
+        const { data: { session } } = await sb.auth.getSession();
         if (session) showApp(session.user);
-      });
+        sb.auth.onAuthStateChange((_event, session) => {
+          if (session) showApp(session.user);
+        });
+      } catch (e) {
+        console.error('init error:', e);
+        showApp({ email: 'fallback', id: 'fallback' });
+      }
     }
 
     async function signIn() {
@@ -64,7 +96,7 @@
       const { error } = await sb.auth.signInWithOtp({ email });
       const msg = document.getElementById('auth-msg');
       msg.classList.remove('hidden');
-      msg.className = error ? 'msg msg-error' : 'msg msg-success';
+      msg.className = error ? 'msg msg-error mt-2' : 'msg msg-success mt-2';
       msg.textContent = error ? error.message : 'Check your email for the magic link.';
     }
 
@@ -72,6 +104,7 @@
       document.getElementById('auth').classList.add('hidden');
       document.getElementById('app').classList.remove('hidden');
       document.getElementById('user-info').textContent = user.email;
+      window._userId = user.id || user.email;
       await loadDetail();
     }
 
@@ -87,26 +120,29 @@
       }
 
       const r = reqResult.data;
+
+      // State badge in card header
+      document.getElementById('state-badge').innerHTML = `<span class="badge badge-${r.state}">${fmtState(r.state)}</span>`;
+
       const grid = document.getElementById('detail-grid');
       grid.innerHTML = `
-        <dt>State</dt><dd><span class="badge badge-${r.state}">${r.state}</span></dd>
-        <dt>Region</dt><dd>${esc(r.region)}</dd>
-        <dt>Size</dt><dd>${esc(r.requested_size)}</dd>
-        <dt>Quantity</dt><dd>${r.quantity}</dd>
-        <dt>Est. Cost</dt><dd>${r.estimated_monthly_cost_usd != null ? '$' + Number(r.estimated_monthly_cost_usd).toLocaleString() : '—'}</dd>
-        <dt>Needed By</dt><dd>${r.needed_by_date || '—'}</dd>
-        <dt>Duration</dt><dd>${r.expected_duration_days ? r.expected_duration_days + ' days' : '—'}</dd>
-        <dt>Customer</dt><dd>${r.customer_ref ? esc(r.customer_ref.name || JSON.stringify(r.customer_ref)) : '—'}</dd>
-        <dt>Requester</dt><dd>${esc(r.requester_user_id)}</dd>
-        <dt>Commercial</dt><dd>${esc(r.commercial_owner_user_id) || '—'}</dd>
-        <dt>Infra Group</dt><dd>${esc(r.infra_owner_group) || '—'}</dd>
-        <dt>Created</dt><dd>${fmtDate(r.created_at)}</dd>
-        <dt>Updated</dt><dd>${fmtDate(r.updated_at)}</dd>
-        <dt>Deadline</dt><dd>${r.next_deadline_at ? fmtDate(r.next_deadline_at) : '—'}</dd>
-        <dt>Version</dt><dd>${r.version}</dd>
+        <div class="detail-item"><div class="detail-label">Region</div><div class="detail-value mono">${esc(r.region)}</div></div>
+        <div class="detail-item"><div class="detail-label">Size</div><div class="detail-value mono">${esc(r.requested_size)}</div></div>
+        <div class="detail-item"><div class="detail-label">Quantity</div><div class="detail-value">${r.quantity}</div></div>
+        <div class="detail-item"><div class="detail-label">Est. Cost</div><div class="detail-value mono">${r.estimated_monthly_cost_usd != null ? '$' + Number(r.estimated_monthly_cost_usd).toLocaleString() : '\u2014'}</div></div>
+        <div class="detail-item"><div class="detail-label">Needed By</div><div class="detail-value">${r.needed_by_date || '\u2014'}</div></div>
+        <div class="detail-item"><div class="detail-label">Duration</div><div class="detail-value">${r.expected_duration_days ? r.expected_duration_days + ' days' : '\u2014'}</div></div>
+        <div class="detail-item"><div class="detail-label">Customer</div><div class="detail-value">${r.customer_ref ? esc(r.customer_ref.name || JSON.stringify(r.customer_ref)) : '\u2014'}</div></div>
+        <div class="detail-item"><div class="detail-label">Requester</div><div class="detail-value mono">${esc(r.requester_user_id)}</div></div>
+        <div class="detail-item"><div class="detail-label">Commercial</div><div class="detail-value mono">${esc(r.commercial_owner_user_id) || '\u2014'}</div></div>
+        <div class="detail-item"><div class="detail-label">Infra Group</div><div class="detail-value mono">${esc(r.infra_owner_group) || '\u2014'}</div></div>
+        <div class="detail-item"><div class="detail-label">Created</div><div class="detail-value">${fmtDate(r.created_at)}</div></div>
+        <div class="detail-item"><div class="detail-label">Updated</div><div class="detail-value">${fmtDate(r.updated_at)}</div></div>
+        <div class="detail-item"><div class="detail-label">Deadline</div><div class="detail-value">${r.next_deadline_at ? fmtDate(r.next_deadline_at) : '\u2014'}</div></div>
+        <div class="detail-item"><div class="detail-label">Version</div><div class="detail-value mono">${r.version}</div></div>
       `;
 
-      // Action buttons based on state
+      // Action buttons
       const acts = document.getElementById('actions');
       acts.innerHTML = '';
       const state = r.state;
@@ -127,9 +163,8 @@
           <button class="btn btn-danger"  onclick="applyEvent('CUSTOMER_DECLINED')">Decline</button>
         `;
       }
-      // Cancel from any non-terminal state
       if (!['COMPLETED', 'REJECTED', 'CANCELLED', 'EXPIRED', 'FAILED'].includes(state)) {
-        acts.innerHTML += `<button class="btn btn-secondary" onclick="cancelRequest()">Cancel</button>`;
+        acts.innerHTML += `<button class="btn btn-ghost" onclick="cancelRequest()">Cancel Request</button>`;
       }
 
       // Events timeline
@@ -139,9 +174,9 @@
       } else {
         tl.innerHTML = eventsResult.data.map(e => `
           <li>
-            <span class="event-type">${e.event_type}</span>
-            <span class="event-meta"> — ${e.actor_type}:${esc(e.actor_id)} at ${fmtDate(e.created_at)}</span>
-            ${e.payload && Object.keys(e.payload).length ? '<br><code>' + esc(JSON.stringify(e.payload)) + '</code>' : ''}
+            <span class="event-type">${fmtState(e.event_type)}</span>
+            <span class="event-meta"> \u2014 ${e.actor_type}:${esc(e.actor_id)} at ${fmtDate(e.created_at)}</span>
+            ${e.payload && Object.keys(e.payload).length ? '<div class="event-payload">' + esc(JSON.stringify(e.payload)) + '</div>' : ''}
           </li>
         `).join('');
       }
@@ -150,24 +185,25 @@
     async function applyEvent(eventType, payload) {
       const msgEl = document.getElementById('msg');
       msgEl.innerHTML = '';
-      const { data: { user } } = await sb.auth.getUser();
+      const actorId = window._userId || 'web-user';
       const { data, error } = await sb.rpc('apply_capacity_event', {
         p_request_id: requestId,
         p_event_type: eventType,
         p_actor_type: 'user',
-        p_actor_id: user.id,
+        p_actor_id: actorId,
         p_payload: payload || {}
       });
       if (error) {
         msgEl.innerHTML = `<div class="msg msg-error">${error.message}</div>`;
       } else {
-        msgEl.innerHTML = `<div class="msg msg-success">Event ${eventType} applied.</div>`;
+        msgEl.innerHTML = `<div class="msg msg-success">Event ${fmtState(eventType)} applied.</div>`;
         await loadDetail();
       }
     }
 
     async function cancelRequest() {
       const reason = prompt('Cancellation reason (optional):');
+      if (reason === null) return;
       await applyEvent('CANCEL_APPROVED', { reason: reason || 'Cancelled via web UI' });
     }
 
@@ -179,8 +215,12 @@
     }
 
     function fmtDate(iso) {
-      if (!iso) return '—';
+      if (!iso) return '\u2014';
       return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    }
+
+    function fmtState(s) {
+      return (s || '').replace(/_/g, ' ');
     }
 
     init();

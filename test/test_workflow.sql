@@ -1349,10 +1349,21 @@ BEGIN
   FROM jsonb_array_elements(kit->'blocks') AS b
   WHERE b->>'type' = 'actions';
 
-  ASSERT actions_block IS NULL,
-    'Terminal state should have no actions block';
+  -- Terminal states may have a "View in Web" button if WEB_APP_BASE_URL is set,
+  -- but should have no action buttons (approve/reject/cancel)
+  IF actions_block IS NOT NULL THEN
+    DECLARE
+      action_ids text[];
+    BEGIN
+      SELECT array_agg(e->>'action_id') INTO action_ids
+      FROM jsonb_array_elements(actions_block->'elements') AS e;
+      -- Only view_web should be present
+      ASSERT action_ids = ARRAY['view_web'],
+        format('Terminal state should only have view_web button, got %s', action_ids);
+    END;
+  END IF;
 
-  RAISE NOTICE 'PASS: Test 38 - Block Kit for terminal state has no actions';
+  RAISE NOTICE 'PASS: Test 38 - Block Kit for terminal state has no action buttons';
 END;
 $$;
 

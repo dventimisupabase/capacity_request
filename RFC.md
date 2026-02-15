@@ -195,13 +195,13 @@ Provides more structure than Slack-only workflows but does not eliminate ambigui
 
 ---
 
-⚠️ Don’t fill this next section out until the team decides on an approach above.
-
----
-
 ## Decision
 
-TBD
+**Option A — Control-Plane Anchored Workflow.**
+
+The workflow will be modeled as durable state inside a Supabase project, with Postgres as the source of truth, an append-only event log driving state transitions, and Slack as the primary interaction surface. Linear remains informational only.
+
+The [PRD](supabase_capacity_workflow_prd.md) specifies the architecture and implementation design.
 
 ---
 

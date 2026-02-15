@@ -1,6 +1,6 @@
-# Engineering Appendix: Control-Plane Capacity Request Workflow (Supabase-native)
+# PRD: Control-Plane Capacity Request Workflow (Supabase-native)
 
-This appendix describes a **reference architecture** for the large instance provisioning workflow using Supabase-native primitives. It is a starting point — the implementation may diverge where a better architecture emerges.
+This document specifies the architecture and implementation design for the large instance provisioning workflow using Supabase-native primitives. It accompanies the [RFC](RFC.md) which established the decision to use a control-plane anchored workflow.
 
 ---
 

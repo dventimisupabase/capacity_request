@@ -17,6 +17,8 @@
       <nav class="topbar-nav">
         <a href="index.html">Dashboard</a>
         <a href="new.html">New Request</a>
+        <a href="queue.html">Queue <span class="nav-badge" id="queue-badge"></span></a>
+        <a href="analytics.html">Analytics</a>
       </nav>
       <span class="topbar-user" id="user-info"></span>
     </header>
@@ -65,6 +67,12 @@
             <div class="detail-item" style="grid-column:1/-1"><span class="loading">Loading...</span></div>
           </div>
         </div>
+      </div>
+
+      <!-- Notes for actions -->
+      <div class="form-group full fade-in fade-in-3" id="notes-group" style="margin-top:1rem;display:none;">
+        <label for="action-notes">Notes (optional)</label>
+        <textarea id="action-notes" rows="3" placeholder="Add a note about your decision..."></textarea>
       </div>
 
       <!-- Action buttons -->
@@ -174,14 +182,17 @@
         <div class="detail-item"><div class="detail-label">Infra Group</div><div class="detail-value mono">${esc(r.infra_owner_group) || '\u2014'}</div></div>
         <div class="detail-item"><div class="detail-label">Created</div><div class="detail-value">${fmtDate(r.created_at)}</div></div>
         <div class="detail-item"><div class="detail-label">Updated</div><div class="detail-value">${fmtDate(r.updated_at)}</div></div>
+        <div class="detail-item"><div class="detail-label">VP Approver</div><div class="detail-value mono">${esc(r.vp_approver_user_id) || '\u2014'}</div></div>
         <div class="detail-item"><div class="detail-label">Deadline</div><div class="detail-value">${r.next_deadline_at ? fmtDate(r.next_deadline_at) : '\u2014'}</div></div>
         <div class="detail-item"><div class="detail-label">Version</div><div class="detail-value mono">${r.version}</div></div>
       `;
 
-      // Action buttons
+      // Action buttons & notes textarea
       const acts = document.getElementById('actions');
       acts.innerHTML = '';
       const state = r.state;
+      const hasActions = !['COMPLETED', 'REJECTED', 'CANCELLED', 'EXPIRED', 'FAILED'].includes(state);
+      document.getElementById('notes-group').style.display = hasActions ? '' : 'none';
 
       if (state === 'UNDER_REVIEW') {
         acts.innerHTML = `
@@ -199,7 +210,7 @@
           <button class="btn btn-danger"  onclick="applyEvent('CUSTOMER_DECLINED')">Decline</button>
         `;
       }
-      if (!['COMPLETED', 'REJECTED', 'CANCELLED', 'EXPIRED', 'FAILED'].includes(state)) {
+      if (hasActions) {
         acts.innerHTML += `<button class="btn btn-ghost" onclick="cancelRequest()">Cancel Request</button>`;
       }
 
@@ -213,6 +224,7 @@
             <span class="event-type">${fmtState(e.event_type)}</span>
             <span class="event-meta"> \u2014 ${e.actor_type}:${esc(e.actor_id)} at ${fmtDate(e.created_at)}</span>
             ${e.payload && Object.keys(e.payload).length ? '<div class="event-payload">' + esc(JSON.stringify(e.payload)) + '</div>' : ''}
+            ${e.notes ? '<div class="event-notes">' + esc(e.notes) + '</div>' : ''}
           </li>
         `).join('');
       }
@@ -222,16 +234,21 @@
       const msgEl = document.getElementById('msg');
       msgEl.innerHTML = '';
       const actorId = window._userId || 'web-user';
-      const { data, error } = await sb.rpc('apply_capacity_event', {
+      const notesEl = document.getElementById('action-notes');
+      const notes = notesEl ? notesEl.value.trim() : '';
+      const rpcParams = {
         p_request_id: requestId,
         p_event_type: eventType,
         p_actor_type: 'user',
         p_actor_id: actorId,
         p_payload: payload || {}
-      });
+      };
+      if (notes) rpcParams.p_notes = notes;
+      const { data, error } = await sb.rpc('apply_capacity_event', rpcParams);
       if (error) {
         msgEl.innerHTML = `<div class="msg msg-error">${error.message}</div>`;
       } else {
+        if (notesEl) notesEl.value = '';
         msgEl.innerHTML = `<div class="msg msg-success">Event ${fmtState(eventType)} applied.</div>`;
         await loadDetail();
       }

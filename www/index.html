@@ -17,6 +17,8 @@
       <nav class="topbar-nav">
         <a href="index.html" class="active">Dashboard</a>
         <a href="new.html">New Request</a>
+        <a href="queue.html">Queue <span class="nav-badge" id="queue-badge"></span></a>
+        <a href="analytics.html">Analytics</a>
       </nav>
       <span class="topbar-user" id="user-info"></span>
     </header>
@@ -45,6 +47,54 @@
         <div class="card-header">
           <h3>Requests</h3>
           <a href="new.html" class="btn btn-primary" style="padding:0.35rem 0.75rem;font-size:0.78rem;">+ New</a>
+        </div>
+        <div class="filter-bar">
+          <div class="filter-group">
+            <label for="filter-state">State</label>
+            <select id="filter-state">
+              <option value="">All</option>
+              <option value="SUBMITTED">Submitted</option>
+              <option value="UNDER_REVIEW">Under Review</option>
+              <option value="CUSTOMER_CONFIRMATION_REQUIRED">Customer Confirmation</option>
+              <option value="PROVISIONING">Provisioning</option>
+              <option value="COMPLETED">Completed</option>
+              <option value="REJECTED">Rejected</option>
+              <option value="CANCELLED">Cancelled</option>
+              <option value="EXPIRED">Expired</option>
+              <option value="FAILED">Failed</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label for="filter-region">Region</label>
+            <select id="filter-region">
+              <option value="">All</option>
+              <option value="us-east-1">us-east-1</option>
+              <option value="us-east-2">us-east-2</option>
+              <option value="us-west-1">us-west-1</option>
+              <option value="us-west-2">us-west-2</option>
+              <option value="eu-west-1">eu-west-1</option>
+              <option value="eu-west-2">eu-west-2</option>
+              <option value="eu-central-1">eu-central-1</option>
+              <option value="ap-southeast-1">ap-southeast-1</option>
+              <option value="ap-northeast-1">ap-northeast-1</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label for="filter-search">Search</label>
+            <input type="text" id="filter-search" placeholder="ID or customer...">
+          </div>
+          <div class="filter-group">
+            <label for="filter-range">Date Range</label>
+            <select id="filter-range">
+              <option value="">All time</option>
+              <option value="7">Last 7 days</option>
+              <option value="30">Last 30 days</option>
+              <option value="90">Last 90 days</option>
+            </select>
+          </div>
+          <div class="filter-actions">
+            <button class="btn btn-ghost" onclick="clearFilters()">Clear</button>
+          </div>
         </div>
         <table class="data-table">
           <thead>
@@ -75,11 +125,13 @@
   <script src="config.js"></script>
   <script>
     const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    let allRequests = [];
+    const TERMINAL_STATES = ['COMPLETED', 'REJECTED', 'CANCELLED', 'EXPIRED', 'FAILED'];
 
     async function init() {
       try {
         if (SUPABASE_ANON_KEY.includes('secret')) {
-          showApp({ email: 'local-dev' });
+          showApp({ email: 'local-dev', id: 'local-dev' });
           return;
         }
         const { data: { session } } = await sb.auth.getSession();
@@ -89,7 +141,7 @@
         });
       } catch (e) {
         console.error('init error:', e);
-        showApp({ email: 'fallback' });
+        showApp({ email: 'fallback', id: 'fallback' });
       }
     }
 
@@ -114,7 +166,76 @@
       document.getElementById('auth').classList.add('hidden');
       document.getElementById('app').classList.remove('hidden');
       document.getElementById('user-info').textContent = user.email;
+      window._userId = user.id || user.email;
+      initFilters();
       await loadRequests();
+      loadQueueBadge();
+    }
+
+    function initFilters() {
+      const p = new URLSearchParams(location.search);
+      if (p.get('state')) document.getElementById('filter-state').value = p.get('state');
+      if (p.get('region')) document.getElementById('filter-region').value = p.get('region');
+      if (p.get('q')) document.getElementById('filter-search').value = p.get('q');
+      if (p.get('range')) document.getElementById('filter-range').value = p.get('range');
+
+      document.getElementById('filter-state').addEventListener('change', applyFilters);
+      document.getElementById('filter-region').addEventListener('change', applyFilters);
+      document.getElementById('filter-search').addEventListener('input', applyFilters);
+      document.getElementById('filter-range').addEventListener('change', applyFilters);
+    }
+
+    function applyFilters() {
+      const state = document.getElementById('filter-state').value;
+      const region = document.getElementById('filter-region').value;
+      const q = document.getElementById('filter-search').value.trim().toLowerCase();
+      const range = document.getElementById('filter-range').value;
+
+      const p = new URLSearchParams();
+      if (state) p.set('state', state);
+      if (region) p.set('region', region);
+      if (q) p.set('q', q);
+      if (range) p.set('range', range);
+      const qs = p.toString();
+      history.replaceState(null, '', qs ? '?' + qs : location.pathname);
+
+      renderRequests(filterRequests(state, region, q, range));
+    }
+
+    function filterRequests(state, region, q, range) {
+      let filtered = allRequests;
+      if (state) filtered = filtered.filter(r => r.state === state);
+      if (region) filtered = filtered.filter(r => r.region === region);
+      if (q) {
+        filtered = filtered.filter(r => {
+          const id = (r.id || '').toLowerCase();
+          const name = (r.customer_ref && r.customer_ref.name ? r.customer_ref.name : '').toLowerCase();
+          return id.includes(q) || name.includes(q);
+        });
+      }
+      if (range) {
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - parseInt(range));
+        filtered = filtered.filter(r => new Date(r.created_at) >= cutoff);
+      }
+      return filtered;
+    }
+
+    function clearFilters() {
+      document.getElementById('filter-state').value = '';
+      document.getElementById('filter-region').value = '';
+      document.getElementById('filter-search').value = '';
+      document.getElementById('filter-range').value = '';
+      history.replaceState(null, '', location.pathname);
+      renderRequests(allRequests);
+    }
+
+    function getAgeClass(r) {
+      if (TERMINAL_STATES.includes(r.state)) return '';
+      const hours = (Date.now() - new Date(r.created_at).getTime()) / 3600000;
+      if (hours < 24) return 'age-green';
+      if (hours < 72) return 'age-amber';
+      return 'age-red';
     }
 
     async function loadRequests() {
@@ -127,12 +248,18 @@
         tbody.innerHTML = `<tr class="empty-row"><td colspan="8" class="msg-error">${error.message}</td></tr>`;
         return;
       }
+      allRequests = data || [];
+      applyFilters();
+    }
+
+    function renderRequests(data) {
+      const tbody = document.getElementById('requests-body');
       if (!data || data.length === 0) {
         tbody.innerHTML = '<tr class="empty-row"><td colspan="8">No requests found.</td></tr>';
         return;
       }
       tbody.innerHTML = data.map(r => `
-        <tr onclick="location.href='detail.html?id=${encodeURIComponent(r.id)}'">
+        <tr class="${getAgeClass(r)}" onclick="location.href='detail.html?id=${encodeURIComponent(r.id)}'">
           <td class="col-id">${esc(r.id)}</td>
           <td><span class="badge badge-${r.state}">${fmtState(r.state)}</span></td>
           <td class="col-mono">${esc(r.region)}</td>
@@ -143,6 +270,18 @@
           <td class="col-date">${fmtDate(r.updated_at)}</td>
         </tr>
       `).join('');
+    }
+
+    async function loadQueueBadge() {
+      try {
+        const userId = window._userId || 'web-user';
+        const { data, error } = await sb.rpc('get_my_pending_actions', { p_user_id: userId });
+        if (!error && data && data.length > 0) {
+          document.getElementById('queue-badge').textContent = data.length;
+        }
+      } catch (e) {
+        // Queue badge is non-critical
+      }
     }
 
     function esc(s) {

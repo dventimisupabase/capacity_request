@@ -17,6 +17,8 @@
       <nav class="topbar-nav">
         <a href="index.html">Dashboard</a>
         <a href="new.html" class="active">New Request</a>
+        <a href="queue.html">Queue <span class="nav-badge" id="queue-badge"></span></a>
+        <a href="analytics.html">Analytics</a>
       </nav>
       <span class="topbar-user" id="user-info"></span>
     </header>
@@ -106,6 +108,11 @@
                 <label for="infra_group">Infra Group</label>
                 <input type="text" id="infra_group" placeholder="e.g. infra-team">
               </div>
+
+              <div class="form-group full">
+                <label for="vp_approver">VP Approver</label>
+                <input type="text" id="vp_approver" placeholder="User ID (optional, for cost escalation)">
+              </div>
             </div>
 
             <div class="actions mt-1">
@@ -172,7 +179,8 @@
       const userId = window._userId || 'web-user';
       const cost = document.getElementById('cost').value;
 
-      const { data, error } = await sb.rpc('create_capacity_request', {
+      const vpApprover = document.getElementById('vp_approver').value.trim();
+      const rpcParams = {
         p_requester_user_id: userId,
         p_commercial_owner_user_id: document.getElementById('commercial_owner').value || null,
         p_infra_owner_group: document.getElementById('infra_group').value || null,
@@ -183,7 +191,9 @@
         p_needed_by_date: document.getElementById('needed_by').value,
         p_expected_duration_days: parseInt(document.getElementById('duration').value),
         p_estimated_monthly_cost_usd: cost ? parseFloat(cost) : null
-      });
+      };
+      if (vpApprover) rpcParams.p_vp_approver_user_id = vpApprover;
+      const { data, error } = await sb.rpc('create_capacity_request', rpcParams);
 
       if (error) {
         msgEl.innerHTML = `<div class="msg msg-error">${error.message}</div>`;

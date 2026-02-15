@@ -17,6 +17,8 @@
       <nav class="topbar-nav">
         <a href="index.html">Dashboard</a>
         <a href="new.html">New Request</a>
+        <a href="queue.html">Queue <span class="nav-badge" id="queue-badge"></span></a>
+        <a href="analytics.html">Analytics</a>
       </nav>
       <span class="topbar-user" id="user-info"></span>
     </header>
@@ -51,6 +53,11 @@
             <div class="stat"><div class="stat-label">Loading</div><div class="stat-value loading">...</div></div>
           </div>
         </div>
+      </div>
+
+      <div class="form-group full fade-in fade-in-2" id="notes-group" style="margin-top:1rem;display:none;">
+        <label for="notes">Notes (optional)</label>
+        <textarea id="notes" rows="3" placeholder="Add a note about your decision..."></textarea>
       </div>
 
       <div class="actions fade-in fade-in-2" id="actions"></div>
@@ -153,12 +160,15 @@
       `;
 
       const acts = document.getElementById('actions');
+      const notesGroup = document.getElementById('notes-group');
       if (r.state === 'CUSTOMER_CONFIRMATION_REQUIRED') {
+        notesGroup.style.display = '';
         acts.innerHTML = `
           <button class="btn btn-success" onclick="respond('CUSTOMER_CONFIRMED')">Confirm</button>
           <button class="btn btn-danger"  onclick="respond('CUSTOMER_DECLINED')">Decline</button>
         `;
       } else {
+        notesGroup.style.display = 'none';
         acts.innerHTML = `<div class="msg msg-info">This request is in state <strong>${fmtState(r.state)}</strong> and cannot be confirmed or declined.</div>`;
       }
     }
@@ -167,14 +177,18 @@
       const msgEl = document.getElementById('msg');
       msgEl.innerHTML = '';
       const actorId = window._userId || 'web-user';
+      const notesEl = document.getElementById('notes');
+      const notes = notesEl ? notesEl.value.trim() : '';
 
-      const { data, error } = await sb.rpc('apply_capacity_event', {
+      const rpcParams = {
         p_request_id: requestId,
         p_event_type: eventType,
         p_actor_type: 'user',
         p_actor_id: actorId,
         p_payload: {}
-      });
+      };
+      if (notes) rpcParams.p_notes = notes;
+      const { data, error } = await sb.rpc('apply_capacity_event', rpcParams);
       if (error) {
         msgEl.innerHTML = `<div class="msg msg-error">${error.message}</div>`;
       } else {

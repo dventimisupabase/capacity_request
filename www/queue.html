@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CapReq — Approval Queue</title>
+  <link rel="icon" type="image/png" href="capreq-icon.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <a href="index.html" class="topbar-brand">
+        <img src="capreq-icon.png" alt="CapReq" class="topbar-icon">
+        <span>CapReq</span>
+      </a>
+      <nav class="topbar-nav">
+        <a href="index.html">Dashboard</a>
+        <a href="new.html">New Request</a>
+        <a href="queue.html" class="active">Queue <span class="nav-badge" id="queue-badge"></span></a>
+        <a href="analytics.html">Analytics</a>
+      </nav>
+      <span class="topbar-user" id="user-info"></span>
+    </header>
+
+    <div id="auth" class="auth-card">
+      <img src="capreq-icon.png" alt="CapReq" class="auth-logo">
+      <h2>CapReq</h2>
+      <p class="auth-tagline">Manage infrastructure capacity requests with approvals</p>
+      <p>Sign in to view your approval queue.</p>
+      <div class="input-group">
+        <input type="email" id="email" placeholder="you@example.com">
+        <button class="btn btn-primary" onclick="signIn()">Send Link</button>
+      </div>
+      <p id="auth-msg" class="hidden mt-2"></p>
+    </div>
+
+    <div id="app" class="hidden">
+      <div class="page-header fade-in">
+        <h1>Approval Queue</h1>
+        <p>Actions pending your review</p>
+      </div>
+
+      <div id="msg"></div>
+
+      <div class="card fade-in fade-in-1">
+        <div class="card-header">
+          <h3>Pending Actions</h3>
+        </div>
+        <div id="queue-content">
+          <table class="queue-table">
+            <thead>
+              <tr>
+                <th>Request ID</th>
+                <th>Action Needed</th>
+                <th>Size</th>
+                <th>Qty</th>
+                <th>Region</th>
+                <th>Cost</th>
+                <th>Needed By</th>
+                <th>SLA</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="queue-body">
+              <tr><td colspan="9" class="loading" style="text-align:center;padding:2rem;">Loading queue...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <footer class="app-footer fade-in fade-in-3">
+        <p>Approve or reject pending actions from your queue. Actions are assigned based on your role and ownership of each request.</p>
+      </footer>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="config.js"></script>
+  <script>
+    const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    const actionMap = {
+      commercial_review:     { approve: 'COMMERCIAL_APPROVED',  reject: 'COMMERCIAL_REJECTED',  label: 'Commercial Review' },
+      technical_review:      { approve: 'TECH_REVIEW_APPROVED', reject: 'TECH_REVIEW_REJECTED', label: 'Technical Review' },
+      vp_approval:           { approve: 'VP_APPROVED',          reject: 'VP_REJECTED',          label: 'VP Approval' },
+      customer_confirmation: { approve: 'CUSTOMER_CONFIRMED',   reject: 'CUSTOMER_DECLINED',    label: 'Customer Confirmation' }
+    };
+
+    async function init() {
+      try {
+        if (SUPABASE_ANON_KEY.includes('secret')) {
+          showApp({ email: 'local-dev', id: 'local-dev' });
+          return;
+        }
+        const { data: { session } } = await sb.auth.getSession();
+        if (session) showApp(session.user);
+        sb.auth.onAuthStateChange((_event, session) => {
+          if (session) showApp(session.user);
+        });
+      } catch (e) {
+        console.error('init error:', e);
+        showApp({ email: 'fallback', id: 'fallback' });
+      }
+    }
+
+    async function signIn() {
+      const email = document.getElementById('email').value.trim();
+      if (!email) return;
+      const msg = document.getElementById('auth-msg');
+      try {
+        const { error } = await sb.auth.signInWithOtp({ email });
+        msg.classList.remove('hidden');
+        msg.className = error ? 'msg msg-error mt-2' : 'msg msg-success mt-2';
+        msg.textContent = error ? error.message : 'Check your email for the magic link.';
+      } catch (e) {
+        console.error('signIn error:', e);
+        msg.classList.remove('hidden');
+        msg.className = 'msg msg-error mt-2';
+        msg.textContent = e.message || 'Failed to send magic link. Please try again.';
+      }
+    }
+
+    async function showApp(user) {
+      document.getElementById('auth').classList.add('hidden');
+      document.getElementById('app').classList.remove('hidden');
+      document.getElementById('user-info').textContent = user.email;
+      window._userId = user.id || user.email;
+      await loadQueue();
+    }
+
+    async function loadQueue() {
+      const userId = window._userId || 'web-user';
+      const { data, error } = await sb.rpc('get_my_pending_actions', { p_user_id: userId });
+
+      const tbody = document.getElementById('queue-body');
+      const badge = document.getElementById('queue-badge');
+
+      if (error) {
+        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:2rem;" class="msg-error">${error.message}</td></tr>`;
+        return;
+      }
+
+      if (!data || data.length === 0) {
+        badge.textContent = '';
+        document.getElementById('queue-content').innerHTML = `
+          <div class="empty-state">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <p>No pending actions &mdash; you're all caught up!</p>
+          </div>`;
+        return;
+      }
+
+      badge.textContent = data.length;
+
+      tbody.innerHTML = data.map((item, idx) => {
+        const action = actionMap[item.action_needed] || { approve: null, reject: null, label: item.action_needed };
+        const slaClass = item.sla_status ? 'sla-' + item.sla_status : '';
+        const slaLabel = item.sla_status ? item.sla_status.replace(/_/g, ' ') : '\u2014';
+        return `
+          <tr>
+            <td class="col-id" style="cursor:pointer" onclick="location.href='detail.html?id=${encodeURIComponent(item.request_id)}'">
+              ${esc(item.request_id)}
+            </td>
+            <td>${esc(action.label)}</td>
+            <td class="col-mono">${esc(item.requested_size)}</td>
+            <td>${item.quantity}</td>
+            <td class="col-mono">${esc(item.region)}</td>
+            <td class="col-cost">${item.estimated_monthly_cost_usd != null ? '$' + Number(item.estimated_monthly_cost_usd).toLocaleString() : '\u2014'}</td>
+            <td class="col-date">${item.needed_by_date || '\u2014'}</td>
+            <td><span class="${slaClass}" style="font-weight:600;font-size:0.8rem;text-transform:uppercase;font-family:var(--mono)">${slaLabel}</span></td>
+            <td class="queue-actions">
+              ${action.approve ? `<button class="btn btn-success" onclick="doAction('${esc(item.request_id)}','${action.approve}',this)">Approve</button>` : ''}
+              ${action.reject ? `<button class="btn btn-danger" onclick="doAction('${esc(item.request_id)}','${action.reject}',this)">Reject</button>` : ''}
+            </td>
+          </tr>`;
+      }).join('');
+    }
+
+    async function doAction(requestId, eventType, btn) {
+      const msgEl = document.getElementById('msg');
+      msgEl.innerHTML = '';
+      btn.disabled = true;
+
+      const actorId = window._userId || 'web-user';
+      const { data, error } = await sb.rpc('apply_capacity_event', {
+        p_request_id: requestId,
+        p_event_type: eventType,
+        p_actor_type: 'user',
+        p_actor_id: actorId,
+        p_payload: {}
+      });
+
+      if (error) {
+        msgEl.innerHTML = `<div class="msg msg-error">${error.message}</div>`;
+        btn.disabled = false;
+      } else {
+        msgEl.innerHTML = `<div class="msg msg-success">Action applied to ${esc(requestId)}.</div>`;
+        await loadQueue();
+      }
+    }
+
+    function esc(s) {
+      if (s == null) return '';
+      const d = document.createElement('div');
+      d.textContent = String(s);
+      return d.innerHTML;
+    }
+
+    function fmtState(s) {
+      return (s || '').replace(/_/g, ' ');
+    }
+
+    init();
+  </script>
+</body>
+</html>

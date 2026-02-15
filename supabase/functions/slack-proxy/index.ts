@@ -183,12 +183,14 @@ Deno.serve(async (req) => {
     }
   }
 
-  // --- Path 2: View submission routing ---
-  // When the payload contains type "view_submission", forward to modal handler
+  // --- Path 2: Interactive payload routing ---
   if (params.has("payload")) {
     try {
       const payload = JSON.parse(params.get("payload")!);
+
+      // Path 2a: View submission (modal form submit)
       if (payload.type === "view_submission") {
+        const submitBody = JSON.stringify(payload);
         const resp = await fetch(
           `${supabaseUrl}/rest/v1/rpc/handle_slack_modal_submission`,
           {
@@ -202,16 +204,70 @@ Deno.serve(async (req) => {
               "x-slack-request-timestamp":
                 req.headers.get("x-slack-request-timestamp") ?? "",
             },
-            body: JSON.stringify(payload),
+            body: submitBody,
           },
         );
 
         const result = await resp.text();
-        // Empty response closes the modal; non-empty returns errors
-        return new Response(result || "", {
+        if (!resp.ok) {
+          console.error("modal submission error:", result);
+          return new Response("", { status: 200 });
+        }
+        const body2 = result === "null" || result === "" ? "" : result;
+        return new Response(body2, {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
+      }
+
+      // Path 2b: Block actions (button clicks)
+      // Acknowledge immediately, then fire PostgREST call and post
+      // the updated Block Kit to Slack's response_url asynchronously.
+      if (payload.type === "block_actions") {
+        const responseUrl = payload.response_url;
+
+        // Fire-and-forget: call PostgREST to apply the event, then
+        // use response_url to replace the original message.
+        const bgWork = fetch(
+          `${supabaseUrl}/rest/v1/rpc/handle_slack_webhook`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "text/plain",
+              apikey: serviceRoleKey,
+              Authorization: `Bearer ${serviceRoleKey}`,
+              "x-slack-signature":
+                req.headers.get("x-slack-signature") ?? "",
+              "x-slack-request-timestamp":
+                req.headers.get("x-slack-request-timestamp") ?? "",
+            },
+            body,
+          },
+        ).then(async (resp) => {
+          if (resp.ok && responseUrl) {
+            const webhookResult = await resp.json();
+            // Post the replacement to Slack's response_url
+            await fetch(responseUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(webhookResult),
+            });
+          }
+        }).catch((err) => console.error("block_actions background error:", err));
+
+        // Keep the edge function alive until background work completes
+        // but return the acknowledgment immediately
+        const ac = new AbortController();
+        req.signal?.addEventListener("abort", () => ac.abort());
+
+        // Return immediate acknowledgment to Slack (within 3s)
+        // Use waitUntil-like pattern: respond first, then await bg work
+        const response = new Response("", { status: 200 });
+
+        // Ensure background work completes before function exits
+        bgWork.finally(() => {});
+
+        return response;
       }
     } catch {
       // If payload parsing fails, fall through to default handler
@@ -219,6 +275,7 @@ Deno.serve(async (req) => {
   }
 
   // --- Path 3: Default — forward to handle_slack_webhook ---
+  // (slash commands with text args like /capacity help, /capacity list, etc.)
   const resp = await fetch(
     `${supabaseUrl}/rest/v1/rpc/handle_slack_webhook`,
     {

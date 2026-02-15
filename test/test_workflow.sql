@@ -1768,6 +1768,59 @@ END;
 $$;
 
 -- ============================================================
+-- Test 49: After commercial approval, commercial buttons hidden, tech buttons remain
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  kit jsonb;
+  actions_block jsonb;
+  action_ids text[];
+BEGIN
+  req := create_capacity_request(
+    'U_ctx1', 'U_comm_ctx1', 'infra-ctx1',
+    '{"org_id": "org_ctx1"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30,
+    5000, 7, 'C_CTX1'
+  );
+
+  -- Apply commercial approval (state stays UNDER_REVIEW, waiting on tech)
+  req := apply_capacity_event(req.id, 'COMMERCIAL_APPROVED', 'user', 'U_comm_ctx1');
+  ASSERT req.state = 'UNDER_REVIEW', 'State should still be UNDER_REVIEW';
+  ASSERT req.commercial_approved_at IS NOT NULL, 'commercial_approved_at should be set';
+
+  kit := build_block_kit_message(req, 'UNDER_REVIEW', 'UNDER_REVIEW', 'COMMERCIAL_APPROVED', 'U_comm_ctx1');
+
+  SELECT b INTO actions_block
+  FROM jsonb_array_elements(kit->'blocks') AS b
+  WHERE b->>'type' = 'actions';
+
+  ASSERT actions_block IS NOT NULL, 'Should have an actions block';
+
+  SELECT array_agg(e->>'action_id') INTO action_ids
+  FROM jsonb_array_elements(actions_block->'elements') AS e;
+
+  -- Commercial buttons should be gone
+  ASSERT NOT ('commercial_approve' = ANY(action_ids)),
+    format('commercial_approve should be hidden after approval, got %s', action_ids);
+  ASSERT NOT ('commercial_reject' = ANY(action_ids)),
+    format('commercial_reject should be hidden after approval, got %s', action_ids);
+
+  -- Tech buttons should still be present
+  ASSERT 'tech_approve' = ANY(action_ids),
+    format('tech_approve should still be present, got %s', action_ids);
+  ASSERT 'tech_reject' = ANY(action_ids),
+    format('tech_reject should still be present, got %s', action_ids);
+
+  -- Cancel should still be present
+  ASSERT 'cancel' = ANY(action_ids),
+    format('cancel should still be present, got %s', action_ids);
+
+  RAISE NOTICE 'PASS: Test 49 - After commercial approval, commercial buttons hidden, tech buttons remain';
+END;
+$$;
+
+-- ============================================================
 -- Summary
 -- ============================================================
 DO $$

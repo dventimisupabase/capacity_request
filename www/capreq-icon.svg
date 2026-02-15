@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f1923"/>
+      <stop offset="100%" stop-color="#1a2a3a"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#00e5a0"/>
+      <stop offset="100%" stop-color="#00b87a"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="512" height="512" fill="url(#bg)"/>
+
+  <!-- Server stack - three horizontal bars -->
+  <rect x="96" y="120" width="320" height="64" rx="12" fill="#1e3348" stroke="#00e5a0" stroke-width="3"/>
+  <rect x="96" y="224" width="320" height="64" rx="12" fill="#1e3348" stroke="#00e5a0" stroke-width="3"/>
+  <rect x="96" y="328" width="320" height="64" rx="12" fill="#1e3348" stroke="#00e5a0" stroke-width="3"/>
+
+  <!-- Status indicators on each bar -->
+  <circle cx="148" cy="152" r="12" fill="#00e5a0"/>
+  <circle cx="148" cy="256" r="12" fill="#00e5a0"/>
+  <circle cx="148" cy="360" r="12" fill="#f59e0b"/>
+
+  <!-- Activity lines on each bar -->
+  <rect x="184" y="142" width="80" height="6" rx="3" fill="#2a4a64"/>
+  <rect x="184" y="158" width="120" height="6" rx="3" fill="#2a4a64"/>
+  <rect x="184" y="246" width="100" height="6" rx="3" fill="#2a4a64"/>
+  <rect x="184" y="262" width="60" height="6" rx="3" fill="#2a4a64"/>
+  <rect x="184" y="350" width="90" height="6" rx="3" fill="#2a4a64"/>
+  <rect x="184" y="366" width="140" height="6" rx="3" fill="#2a4a64"/>
+
+  <!-- Checkmark on top bar -->
+  <polyline points="356,140 372,158 400,130" fill="none" stroke="#00e5a0" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Checkmark on middle bar -->
+  <polyline points="356,244 372,262 400,234" fill="none" stroke="#00e5a0" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Hourglass/pending on bottom bar -->
+  <text x="380" y="370" font-family="sans-serif" font-size="36" fill="#f59e0b" text-anchor="middle" dominant-baseline="central">...</text>
+</svg>

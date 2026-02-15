@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>New Capacity Request</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <nav>
+    <span class="brand">Capacity Requests</span>
+    <a href="index.html">Dashboard</a>
+    <a href="new.html">New Request</a>
+    <span id="user-info"></span>
+  </nav>
+
+  <div id="auth">
+    <p>Sign in to submit a capacity request.</p>
+    <input type="email" id="email" placeholder="you@example.com">
+    <button class="btn btn-primary" onclick="signIn()">Send Magic Link</button>
+    <p id="auth-msg" class="hidden"></p>
+  </div>
+
+  <div id="app" class="hidden">
+    <h1>New Capacity Request</h1>
+    <div id="msg"></div>
+
+    <form id="request-form" onsubmit="submitForm(event)">
+      <div class="form-row">
+        <div>
+          <label for="size">Instance Size</label>
+          <select id="size" required>
+            <option value="">Select size...</option>
+            <option value="8XL">8XL</option>
+            <option value="16XL">16XL</option>
+            <option value="24XL">24XL</option>
+            <option value="32XL">32XL</option>
+            <option value="48XL">48XL</option>
+          </select>
+        </div>
+        <div>
+          <label for="region">Region</label>
+          <select id="region" required>
+            <option value="">Select region...</option>
+            <option value="us-east-1">us-east-1</option>
+            <option value="us-east-2">us-east-2</option>
+            <option value="us-west-1">us-west-1</option>
+            <option value="us-west-2">us-west-2</option>
+            <option value="eu-west-1">eu-west-1</option>
+            <option value="eu-west-2">eu-west-2</option>
+            <option value="eu-central-1">eu-central-1</option>
+            <option value="ap-southeast-1">ap-southeast-1</option>
+            <option value="ap-northeast-1">ap-northeast-1</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div>
+          <label for="quantity">Quantity</label>
+          <input type="number" id="quantity" min="1" max="100" value="1" required>
+        </div>
+        <div>
+          <label for="duration">Duration (days)</label>
+          <input type="number" id="duration" min="1" max="365" required>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div>
+          <label for="needed_by">Needed By Date</label>
+          <input type="date" id="needed_by" required>
+        </div>
+        <div>
+          <label for="cost">Estimated Monthly Cost (USD, optional)</label>
+          <input type="number" id="cost" min="0" step="0.01" placeholder="e.g. 50000">
+        </div>
+      </div>
+
+      <label for="customer_name">Customer Name</label>
+      <input type="text" id="customer_name" required placeholder="e.g. Acme Corp">
+
+      <div class="form-row">
+        <div>
+          <label for="commercial_owner">Commercial Owner (optional)</label>
+          <input type="text" id="commercial_owner" placeholder="User ID or email">
+        </div>
+        <div>
+          <label for="infra_group">Infra Group (optional)</label>
+          <input type="text" id="infra_group" placeholder="e.g. infra-team">
+        </div>
+      </div>
+
+      <button type="submit" class="btn btn-primary">Submit Request</button>
+    </form>
+  </div>
+
+  <script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="config.js"></script>
+  <script>
+    const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    async function init() {
+      const { data: { session } } = await sb.auth.getSession();
+      if (session) showApp(session.user);
+      sb.auth.onAuthStateChange((_event, session) => {
+        if (session) showApp(session.user);
+      });
+    }
+
+    async function signIn() {
+      const email = document.getElementById('email').value.trim();
+      if (!email) return;
+      const { error } = await sb.auth.signInWithOtp({ email });
+      const msg = document.getElementById('auth-msg');
+      msg.classList.remove('hidden');
+      msg.className = error ? 'msg msg-error' : 'msg msg-success';
+      msg.textContent = error ? error.message : 'Check your email for the magic link.';
+    }
+
+    function showApp(user) {
+      document.getElementById('auth').classList.add('hidden');
+      document.getElementById('app').classList.remove('hidden');
+      document.getElementById('user-info').textContent = user.email;
+    }
+
+    async function submitForm(e) {
+      e.preventDefault();
+      const msgEl = document.getElementById('msg');
+      msgEl.innerHTML = '';
+
+      const { data: { user } } = await sb.auth.getUser();
+      const cost = document.getElementById('cost').value;
+
+      const { data, error } = await sb.rpc('create_capacity_request', {
+        p_requester_user_id: user.id,
+        p_commercial_owner_user_id: document.getElementById('commercial_owner').value || null,
+        p_infra_owner_group: document.getElementById('infra_group').value || null,
+        p_customer_ref: { name: document.getElementById('customer_name').value },
+        p_requested_size: document.getElementById('size').value,
+        p_quantity: parseInt(document.getElementById('quantity').value),
+        p_region: document.getElementById('region').value,
+        p_needed_by_date: document.getElementById('needed_by').value,
+        p_expected_duration_days: parseInt(document.getElementById('duration').value),
+        p_estimated_monthly_cost_usd: cost ? parseFloat(cost) : null
+      });
+
+      if (error) {
+        msgEl.innerHTML = `<div class="msg msg-error">${error.message}</div>`;
+        return;
+      }
+
+      // data is the returned capacity_requests row
+      const newId = data.id || (data[0] && data[0].id) || data;
+      if (typeof newId === 'string' && newId.startsWith('CR-')) {
+        location.href = `detail.html?id=${encodeURIComponent(newId)}`;
+      } else {
+        msgEl.innerHTML = `<div class="msg msg-success">Request created. <a href="index.html">Back to dashboard</a></div>`;
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>

@@ -843,6 +843,311 @@ END;
 $$;
 
 -- ============================================================
+-- Setup for provisioning webhook tests: insert Vault secret
+-- ============================================================
+DO $$
+BEGIN
+  PERFORM vault.create_secret('test-provisioning-secret', 'PROVISIONING_WEBHOOK_SECRET');
+  RAISE NOTICE 'Setup: Provisioning webhook Vault secret inserted';
+END;
+$$;
+
+-- ============================================================
+-- Test 25: Provisioning webhook — happy path complete
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  result json;
+BEGIN
+  -- Create request and advance to PROVISIONING
+  req := create_capacity_request(
+    'U_wh1', 'U_comm_wh1', 'infra-wh1',
+    '{"org_id": "org_wh1"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-12-01'::date, 30,
+    5000, 7
+  );
+  req := apply_capacity_event(req.id, 'COMMERCIAL_APPROVED', 'user', 'U_comm_wh1');
+  req := apply_capacity_event(req.id, 'TECH_REVIEW_APPROVED', 'user', 'U_infra_wh1');
+  req := apply_capacity_event(req.id, 'CUSTOMER_CONFIRMED', 'user', 'U_customer_wh1');
+  ASSERT req.state = 'PROVISIONING', format('Setup failed: expected PROVISIONING, got %s', req.state);
+
+  -- Simulate the provisioning webhook header
+  PERFORM set_config('request.headers', json_build_object(
+    'x-provisioning-api-key', 'test-provisioning-secret'
+  )::text, true);
+
+  -- Call the webhook
+  result := handle_provisioning_webhook(json_build_object(
+    'request_id', req.id,
+    'status', 'complete',
+    'details', json_build_object('instance_id', 'i-abc123', 'ip', '10.0.1.5')
+  )::text);
+
+  ASSERT result->>'status' = 'ok', format('Expected ok, got %s', result->>'status');
+  ASSERT result->>'new_state' = 'COMPLETED', format('Expected COMPLETED, got %s', result->>'new_state');
+
+  -- Verify the request is actually COMPLETED
+  SELECT * INTO req FROM capacity_requests WHERE id = req.id;
+  ASSERT req.state = 'COMPLETED', format('Request should be COMPLETED, got %s', req.state);
+
+  RAISE NOTICE 'PASS: Test 25 - Provisioning webhook happy path complete';
+END;
+$$;
+
+-- ============================================================
+-- Test 26: Provisioning webhook — happy path failed
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  result json;
+BEGIN
+  -- Create request and advance to PROVISIONING
+  req := create_capacity_request(
+    'U_wh2', 'U_comm_wh2', 'infra-wh2',
+    '{"org_id": "org_wh2"}'::jsonb,
+    '32XL', 1, 'eu-west-1', '2026-12-01'::date, 30,
+    5000, 7
+  );
+  req := apply_capacity_event(req.id, 'COMMERCIAL_APPROVED', 'user', 'U_comm_wh2');
+  req := apply_capacity_event(req.id, 'TECH_REVIEW_APPROVED', 'user', 'U_infra_wh2');
+  req := apply_capacity_event(req.id, 'CUSTOMER_CONFIRMED', 'user', 'U_customer_wh2');
+  ASSERT req.state = 'PROVISIONING', 'Setup failed';
+
+  PERFORM set_config('request.headers', json_build_object(
+    'x-provisioning-api-key', 'test-provisioning-secret'
+  )::text, true);
+
+  result := handle_provisioning_webhook(json_build_object(
+    'request_id', req.id,
+    'status', 'failed',
+    'details', json_build_object('error', 'Region capacity exhausted')
+  )::text);
+
+  ASSERT result->>'status' = 'ok', format('Expected ok, got %s', result->>'status');
+  ASSERT result->>'new_state' = 'FAILED', format('Expected FAILED, got %s', result->>'new_state');
+
+  SELECT * INTO req FROM capacity_requests WHERE id = req.id;
+  ASSERT req.state = 'FAILED', format('Request should be FAILED, got %s', req.state);
+
+  RAISE NOTICE 'PASS: Test 26 - Provisioning webhook happy path failed';
+END;
+$$;
+
+-- ============================================================
+-- Test 27: Provisioning webhook — invalid API key rejected
+-- ============================================================
+DO $$
+DECLARE
+  result json;
+  req capacity_requests;
+BEGIN
+  -- Create request in PROVISIONING state
+  req := create_capacity_request(
+    'U_wh3', 'U_comm_wh3', 'infra-wh3',
+    '{"org_id": "org_wh3"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-12-01'::date, 30,
+    5000, 7
+  );
+  req := apply_capacity_event(req.id, 'COMMERCIAL_APPROVED', 'user', 'U_comm_wh3');
+  req := apply_capacity_event(req.id, 'TECH_REVIEW_APPROVED', 'user', 'U_infra_wh3');
+  req := apply_capacity_event(req.id, 'CUSTOMER_CONFIRMED', 'user', 'U_customer_wh3');
+
+  -- Set wrong API key
+  PERFORM set_config('request.headers', json_build_object(
+    'x-provisioning-api-key', 'wrong-secret'
+  )::text, true);
+
+  BEGIN
+    result := handle_provisioning_webhook(json_build_object(
+      'request_id', req.id,
+      'status', 'complete'
+    )::text);
+    ASSERT false, 'Should have raised exception for invalid API key';
+  EXCEPTION WHEN OTHERS THEN
+    ASSERT SQLERRM LIKE '%Invalid provisioning API key%',
+      format('Expected API key error, got: %s', SQLERRM);
+  END;
+
+  RAISE NOTICE 'PASS: Test 27 - Invalid API key rejected';
+END;
+$$;
+
+-- ============================================================
+-- Test 28: Provisioning webhook — wrong state rejected
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  result json;
+BEGIN
+  -- Create request but leave it in UNDER_REVIEW (not PROVISIONING)
+  req := create_capacity_request(
+    'U_wh4', 'U_comm_wh4', 'infra-wh4',
+    '{"org_id": "org_wh4"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-12-01'::date, 30,
+    5000, 7
+  );
+  ASSERT req.state = 'UNDER_REVIEW', 'Setup: should be UNDER_REVIEW';
+
+  PERFORM set_config('request.headers', json_build_object(
+    'x-provisioning-api-key', 'test-provisioning-secret'
+  )::text, true);
+
+  result := handle_provisioning_webhook(json_build_object(
+    'request_id', req.id,
+    'status', 'complete'
+  )::text);
+
+  ASSERT result->>'status' = 'error',
+    format('Expected error status, got %s', result->>'status');
+  ASSERT result->>'message' LIKE '%not in PROVISIONING state%',
+    format('Expected state error message, got: %s', result->>'message');
+
+  RAISE NOTICE 'PASS: Test 28 - Wrong state rejected';
+END;
+$$;
+
+-- ============================================================
+-- Test 29: Provisioning webhook — unknown status rejected
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  result json;
+BEGIN
+  -- Create request in PROVISIONING state
+  req := create_capacity_request(
+    'U_wh5', 'U_comm_wh5', 'infra-wh5',
+    '{"org_id": "org_wh5"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-12-01'::date, 30,
+    5000, 7
+  );
+  req := apply_capacity_event(req.id, 'COMMERCIAL_APPROVED', 'user', 'U_comm_wh5');
+  req := apply_capacity_event(req.id, 'TECH_REVIEW_APPROVED', 'user', 'U_infra_wh5');
+  req := apply_capacity_event(req.id, 'CUSTOMER_CONFIRMED', 'user', 'U_customer_wh5');
+
+  PERFORM set_config('request.headers', json_build_object(
+    'x-provisioning-api-key', 'test-provisioning-secret'
+  )::text, true);
+
+  result := handle_provisioning_webhook(json_build_object(
+    'request_id', req.id,
+    'status', 'in_progress'
+  )::text);
+
+  ASSERT result->>'status' = 'error',
+    format('Expected error status, got %s', result->>'status');
+  ASSERT result->>'message' LIKE '%Unknown status%',
+    format('Expected unknown status message, got: %s', result->>'message');
+
+  RAISE NOTICE 'PASS: Test 29 - Unknown status rejected';
+END;
+$$;
+
+-- ============================================================
+-- Test 30: Provisioning webhook — missing request_id
+-- ============================================================
+DO $$
+DECLARE
+  result json;
+BEGIN
+  PERFORM set_config('request.headers', json_build_object(
+    'x-provisioning-api-key', 'test-provisioning-secret'
+  )::text, true);
+
+  result := handle_provisioning_webhook(json_build_object(
+    'status', 'complete'
+  )::text);
+
+  ASSERT result->>'status' = 'error',
+    format('Expected error status, got %s', result->>'status');
+  ASSERT result->>'message' LIKE '%request_id%',
+    format('Expected missing request_id message, got: %s', result->>'message');
+
+  RAISE NOTICE 'PASS: Test 30 - Missing request_id';
+END;
+$$;
+
+-- ============================================================
+-- Test 31: Provisioning webhook — nonexistent request_id
+-- ============================================================
+DO $$
+DECLARE
+  result json;
+BEGIN
+  PERFORM set_config('request.headers', json_build_object(
+    'x-provisioning-api-key', 'test-provisioning-secret'
+  )::text, true);
+
+  result := handle_provisioning_webhook(json_build_object(
+    'request_id', 'CR-2026-999999',
+    'status', 'complete'
+  )::text);
+
+  ASSERT result->>'status' = 'error',
+    format('Expected error status, got %s', result->>'status');
+  ASSERT result->>'message' LIKE '%not found%',
+    format('Expected not found message, got: %s', result->>'message');
+
+  RAISE NOTICE 'PASS: Test 31 - Nonexistent request_id';
+END;
+$$;
+
+-- ============================================================
+-- Test 32: Provisioning webhook — details payload stored in event
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  result json;
+  stored_payload jsonb;
+BEGIN
+  -- Create request in PROVISIONING state
+  req := create_capacity_request(
+    'U_wh6', 'U_comm_wh6', 'infra-wh6',
+    '{"org_id": "org_wh6"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-12-01'::date, 30,
+    5000, 7
+  );
+  req := apply_capacity_event(req.id, 'COMMERCIAL_APPROVED', 'user', 'U_comm_wh6');
+  req := apply_capacity_event(req.id, 'TECH_REVIEW_APPROVED', 'user', 'U_infra_wh6');
+  req := apply_capacity_event(req.id, 'CUSTOMER_CONFIRMED', 'user', 'U_customer_wh6');
+
+  PERFORM set_config('request.headers', json_build_object(
+    'x-provisioning-api-key', 'test-provisioning-secret'
+  )::text, true);
+
+  result := handle_provisioning_webhook(json_build_object(
+    'request_id', req.id,
+    'status', 'complete',
+    'details', json_build_object('instance_id', 'i-xyz789', 'ip', '10.0.2.10', 'flavor', 'metal')
+  )::text);
+
+  ASSERT result->>'status' = 'ok', format('Expected ok, got %s', result->>'status');
+
+  -- Verify details are stored in the event payload
+  SELECT payload INTO stored_payload
+  FROM capacity_request_events
+  WHERE capacity_request_id = req.id
+    AND event_type = 'PROVISIONING_COMPLETE'
+  ORDER BY created_at DESC
+  LIMIT 1;
+
+  ASSERT stored_payload IS NOT NULL, 'Event payload should not be NULL';
+  ASSERT stored_payload->>'instance_id' = 'i-xyz789',
+    format('Expected instance_id i-xyz789, got %s', stored_payload->>'instance_id');
+  ASSERT stored_payload->>'ip' = '10.0.2.10',
+    format('Expected ip 10.0.2.10, got %s', stored_payload->>'ip');
+  ASSERT stored_payload->>'flavor' = 'metal',
+    format('Expected flavor metal, got %s', stored_payload->>'flavor');
+
+  RAISE NOTICE 'PASS: Test 32 - Details payload stored in event';
+END;
+$$;
+
+-- ============================================================
 -- Summary
 -- ============================================================
 DO $$

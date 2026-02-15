@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Request Detail</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <nav>
+    <span class="brand">Capacity Requests</span>
+    <a href="index.html">Dashboard</a>
+    <a href="new.html">New Request</a>
+    <span id="user-info"></span>
+  </nav>
+
+  <div id="auth">
+    <p>Sign in to view request details.</p>
+    <input type="email" id="email" placeholder="you@example.com">
+    <button class="btn btn-primary" onclick="signIn()">Send Magic Link</button>
+    <p id="auth-msg" class="hidden"></p>
+  </div>
+
+  <div id="app" class="hidden">
+    <h1>Request <span id="req-id"></span></h1>
+    <div id="msg"></div>
+
+    <!-- Request fields -->
+    <dl class="detail-grid" id="detail-grid">
+      <dt>Loading...</dt><dd></dd>
+    </dl>
+
+    <!-- Action buttons -->
+    <div class="actions" id="actions"></div>
+
+    <!-- Events timeline -->
+    <h2>Events</h2>
+    <ul class="timeline" id="timeline">
+      <li>Loading...</li>
+    </ul>
+  </div>
+
+  <script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="config.js"></script>
+  <script>
+    const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const params = new URLSearchParams(location.search);
+    const requestId = params.get('id');
+
+    async function init() {
+      if (!requestId) { document.body.innerHTML = '<p class="msg msg-error">No request ID provided.</p>'; return; }
+      document.getElementById('req-id').textContent = requestId;
+
+      const { data: { session } } = await sb.auth.getSession();
+      if (session) showApp(session.user);
+      sb.auth.onAuthStateChange((_event, session) => {
+        if (session) showApp(session.user);
+      });
+    }
+
+    async function signIn() {
+      const email = document.getElementById('email').value.trim();
+      if (!email) return;
+      const { error } = await sb.auth.signInWithOtp({ email });
+      const msg = document.getElementById('auth-msg');
+      msg.classList.remove('hidden');
+      msg.className = error ? 'msg msg-error' : 'msg msg-success';
+      msg.textContent = error ? error.message : 'Check your email for the magic link.';
+    }
+
+    async function showApp(user) {
+      document.getElementById('auth').classList.add('hidden');
+      document.getElementById('app').classList.remove('hidden');
+      document.getElementById('user-info').textContent = user.email;
+      await loadDetail();
+    }
+
+    async function loadDetail() {
+      const [reqResult, eventsResult] = await Promise.all([
+        sb.from('capacity_requests').select('*').eq('id', requestId).single(),
+        sb.from('capacity_request_events').select('*').eq('capacity_request_id', requestId).order('created_at', { ascending: true })
+      ]);
+
+      if (reqResult.error) {
+        document.getElementById('msg').innerHTML = `<div class="msg msg-error">${reqResult.error.message}</div>`;
+        return;
+      }
+
+      const r = reqResult.data;
+      const grid = document.getElementById('detail-grid');
+      grid.innerHTML = `
+        <dt>State</dt><dd><span class="badge badge-${r.state}">${r.state}</span></dd>
+        <dt>Region</dt><dd>${esc(r.region)}</dd>
+        <dt>Size</dt><dd>${esc(r.requested_size)}</dd>
+        <dt>Quantity</dt><dd>${r.quantity}</dd>
+        <dt>Est. Cost</dt><dd>${r.estimated_monthly_cost_usd != null ? '$' + Number(r.estimated_monthly_cost_usd).toLocaleString() : '—'}</dd>
+        <dt>Needed By</dt><dd>${r.needed_by_date || '—'}</dd>
+        <dt>Duration</dt><dd>${r.expected_duration_days ? r.expected_duration_days + ' days' : '—'}</dd>
+        <dt>Customer</dt><dd>${r.customer_ref ? esc(r.customer_ref.name || JSON.stringify(r.customer_ref)) : '—'}</dd>
+        <dt>Requester</dt><dd>${esc(r.requester_user_id)}</dd>
+        <dt>Commercial</dt><dd>${esc(r.commercial_owner_user_id) || '—'}</dd>
+        <dt>Infra Group</dt><dd>${esc(r.infra_owner_group) || '—'}</dd>
+        <dt>Created</dt><dd>${fmtDate(r.created_at)}</dd>
+        <dt>Updated</dt><dd>${fmtDate(r.updated_at)}</dd>
+        <dt>Deadline</dt><dd>${r.next_deadline_at ? fmtDate(r.next_deadline_at) : '—'}</dd>
+        <dt>Version</dt><dd>${r.version}</dd>
+      `;
+
+      // Action buttons based on state
+      const acts = document.getElementById('actions');
+      acts.innerHTML = '';
+      const state = r.state;
+
+      if (state === 'UNDER_REVIEW') {
+        acts.innerHTML = `
+          <button class="btn btn-success" onclick="applyEvent('COMMERCIAL_APPROVED')">Commercial Approve</button>
+          <button class="btn btn-danger"  onclick="applyEvent('COMMERCIAL_REJECTED')">Commercial Reject</button>
+          <button class="btn btn-success" onclick="applyEvent('TECH_REVIEW_APPROVED')">Tech Approve</button>
+          <button class="btn btn-danger"  onclick="applyEvent('TECH_REVIEW_REJECTED')">Tech Reject</button>
+          <button class="btn btn-success" onclick="applyEvent('VP_APPROVED')">VP Approve</button>
+          <button class="btn btn-danger"  onclick="applyEvent('VP_REJECTED')">VP Reject</button>
+        `;
+      }
+      if (state === 'CUSTOMER_CONFIRMATION_REQUIRED') {
+        acts.innerHTML = `
+          <button class="btn btn-success" onclick="applyEvent('CUSTOMER_CONFIRMED')">Confirm</button>
+          <button class="btn btn-danger"  onclick="applyEvent('CUSTOMER_DECLINED')">Decline</button>
+        `;
+      }
+      // Cancel from any non-terminal state
+      if (!['COMPLETED', 'REJECTED', 'CANCELLED', 'EXPIRED', 'FAILED'].includes(state)) {
+        acts.innerHTML += `<button class="btn btn-secondary" onclick="cancelRequest()">Cancel</button>`;
+      }
+
+      // Events timeline
+      const tl = document.getElementById('timeline');
+      if (eventsResult.error || !eventsResult.data.length) {
+        tl.innerHTML = '<li>No events found.</li>';
+      } else {
+        tl.innerHTML = eventsResult.data.map(e => `
+          <li>
+            <span class="event-type">${e.event_type}</span>
+            <span class="event-meta"> — ${e.actor_type}:${esc(e.actor_id)} at ${fmtDate(e.created_at)}</span>
+            ${e.payload && Object.keys(e.payload).length ? '<br><code>' + esc(JSON.stringify(e.payload)) + '</code>' : ''}
+          </li>
+        `).join('');
+      }
+    }
+
+    async function applyEvent(eventType, payload) {
+      const msgEl = document.getElementById('msg');
+      msgEl.innerHTML = '';
+      const { data: { user } } = await sb.auth.getUser();
+      const { data, error } = await sb.rpc('apply_capacity_event', {
+        p_request_id: requestId,
+        p_event_type: eventType,
+        p_actor_type: 'user',
+        p_actor_id: user.id,
+        p_payload: payload || {}
+      });
+      if (error) {
+        msgEl.innerHTML = `<div class="msg msg-error">${error.message}</div>`;
+      } else {
+        msgEl.innerHTML = `<div class="msg msg-success">Event ${eventType} applied.</div>`;
+        await loadDetail();
+      }
+    }
+
+    async function cancelRequest() {
+      const reason = prompt('Cancellation reason (optional):');
+      await applyEvent('CANCEL_APPROVED', { reason: reason || 'Cancelled via web UI' });
+    }
+
+    function esc(s) {
+      if (s == null) return '';
+      const d = document.createElement('div');
+      d.textContent = String(s);
+      return d.innerHTML;
+    }
+
+    function fmtDate(iso) {
+      if (!iso) return '—';
+      return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    }
+
+    init();
+  </script>
+</body>
+</html>

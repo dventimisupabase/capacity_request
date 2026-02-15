@@ -1148,6 +1148,626 @@ END;
 $$;
 
 -- ============================================================
+-- Test 33: build_block_kit_message() returns valid Block Kit for UNDER_REVIEW
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  kit jsonb;
+BEGIN
+  req := create_capacity_request(
+    'U_bk1', 'U_comm_bk1', 'infra-bk1',
+    '{"org_id": "org_bk1", "name": "BlockKit Corp"}'::jsonb,
+    '32XL', 2, 'us-east-1', '2026-03-01'::date, 90,
+    10000, 7, 'C_BLOCKKIT'
+  );
+
+  -- Build Block Kit for the initial SUBMITTED->UNDER_REVIEW transition
+  kit := build_block_kit_message(req, 'SUBMITTED', 'UNDER_REVIEW', 'REQUEST_SUBMITTED', 'U_bk1');
+
+  ASSERT kit IS NOT NULL, 'Block Kit should not be NULL';
+  ASSERT kit ? 'blocks', 'Block Kit should have blocks key';
+  ASSERT kit ? 'text', 'Block Kit should have text fallback';
+  ASSERT kit ? 'channel', 'Block Kit should have channel';
+  ASSERT kit->>'channel' = 'C_BLOCKKIT', format('Expected channel C_BLOCKKIT, got %s', kit->>'channel');
+  -- No thread_ts when slack_thread_ts is NULL
+  ASSERT NOT (kit ? 'thread_ts') OR kit->>'thread_ts' IS NULL,
+    'thread_ts should not be set when slack_thread_ts is NULL';
+
+  RAISE NOTICE 'PASS: Test 33 - build_block_kit_message valid Block Kit for UNDER_REVIEW';
+END;
+$$;
+
+-- ============================================================
+-- Test 34: Block Kit includes VP buttons when cost >= threshold
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  kit jsonb;
+  actions_block jsonb;
+  action_ids text[];
+BEGIN
+  req := create_capacity_request(
+    'U_bk2', 'U_comm_bk2', 'infra-bk2',
+    '{"org_id": "org_bk2"}'::jsonb,
+    '32XL', 10, 'us-east-1', '2026-03-01'::date, 90,
+    100000, 7, 'C_BLOCKKIT2'  -- $100k, above threshold
+  );
+
+  kit := build_block_kit_message(req, 'SUBMITTED', 'UNDER_REVIEW', 'REQUEST_SUBMITTED', 'U_bk2');
+
+  -- Find actions block
+  SELECT b INTO actions_block
+  FROM jsonb_array_elements(kit->'blocks') AS b
+  WHERE b->>'type' = 'actions';
+
+  ASSERT actions_block IS NOT NULL, 'Should have an actions block';
+
+  -- Collect action_ids
+  SELECT array_agg(e->>'action_id') INTO action_ids
+  FROM jsonb_array_elements(actions_block->'elements') AS e;
+
+  ASSERT 'vp_approve' = ANY(action_ids), format('Should have vp_approve button, got %s', action_ids);
+  ASSERT 'vp_reject' = ANY(action_ids), format('Should have vp_reject button, got %s', action_ids);
+
+  RAISE NOTICE 'PASS: Test 34 - Block Kit includes VP buttons when cost >= threshold';
+END;
+$$;
+
+-- ============================================================
+-- Test 35: Block Kit excludes VP buttons when cost < threshold
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  kit jsonb;
+  actions_block jsonb;
+  action_ids text[];
+BEGIN
+  req := create_capacity_request(
+    'U_bk3', 'U_comm_bk3', 'infra-bk3',
+    '{"org_id": "org_bk3"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30,
+    5000, 7, 'C_BLOCKKIT3'  -- $5k, below threshold
+  );
+
+  kit := build_block_kit_message(req, 'SUBMITTED', 'UNDER_REVIEW', 'REQUEST_SUBMITTED', 'U_bk3');
+
+  SELECT b INTO actions_block
+  FROM jsonb_array_elements(kit->'blocks') AS b
+  WHERE b->>'type' = 'actions';
+
+  ASSERT actions_block IS NOT NULL, 'Should have an actions block';
+
+  SELECT array_agg(e->>'action_id') INTO action_ids
+  FROM jsonb_array_elements(actions_block->'elements') AS e;
+
+  ASSERT NOT ('vp_approve' = ANY(action_ids)),
+    format('Should NOT have vp_approve button for low cost, got %s', action_ids);
+  ASSERT NOT ('vp_reject' = ANY(action_ids)),
+    format('Should NOT have vp_reject button for low cost, got %s', action_ids);
+
+  RAISE NOTICE 'PASS: Test 35 - Block Kit excludes VP buttons when cost < threshold';
+END;
+$$;
+
+-- ============================================================
+-- Test 36: Block Kit includes thread_ts when slack_thread_ts is set
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  kit jsonb;
+BEGIN
+  req := create_capacity_request(
+    'U_bk4', 'U_comm_bk4', 'infra-bk4',
+    '{"org_id": "org_bk4"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30,
+    5000, 7, 'C_BLOCKKIT4'
+  );
+
+  -- Manually set slack_thread_ts
+  UPDATE capacity_requests SET slack_thread_ts = '1234567890.123456' WHERE id = req.id;
+  SELECT * INTO req FROM capacity_requests WHERE id = req.id;
+
+  kit := build_block_kit_message(req, 'UNDER_REVIEW', 'UNDER_REVIEW', 'COMMERCIAL_APPROVED', 'U_comm_bk4');
+
+  ASSERT kit->>'thread_ts' = '1234567890.123456',
+    format('Expected thread_ts 1234567890.123456, got %s', kit->>'thread_ts');
+
+  RAISE NOTICE 'PASS: Test 36 - Block Kit includes thread_ts when set';
+END;
+$$;
+
+-- ============================================================
+-- Test 37: Block Kit for CUSTOMER_CONFIRMATION_REQUIRED has confirm/decline
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  kit jsonb;
+  actions_block jsonb;
+  action_ids text[];
+BEGIN
+  req := create_capacity_request(
+    'U_bk5', 'U_comm_bk5', 'infra-bk5',
+    '{"org_id": "org_bk5"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30,
+    5000, 7, 'C_BLOCKKIT5'
+  );
+  req := apply_capacity_event(req.id, 'COMMERCIAL_APPROVED', 'user', 'U_comm_bk5');
+  req := apply_capacity_event(req.id, 'TECH_REVIEW_APPROVED', 'user', 'U_infra_bk5');
+  ASSERT req.state = 'CUSTOMER_CONFIRMATION_REQUIRED', 'Setup failed';
+
+  kit := build_block_kit_message(req, 'UNDER_REVIEW', 'CUSTOMER_CONFIRMATION_REQUIRED', 'TECH_REVIEW_APPROVED', 'U_infra_bk5');
+
+  SELECT b INTO actions_block
+  FROM jsonb_array_elements(kit->'blocks') AS b
+  WHERE b->>'type' = 'actions';
+
+  ASSERT actions_block IS NOT NULL, 'Should have an actions block';
+
+  SELECT array_agg(e->>'action_id') INTO action_ids
+  FROM jsonb_array_elements(actions_block->'elements') AS e;
+
+  ASSERT 'customer_confirm' = ANY(action_ids),
+    format('Should have customer_confirm button, got %s', action_ids);
+  ASSERT 'customer_decline' = ANY(action_ids),
+    format('Should have customer_decline button, got %s', action_ids);
+  ASSERT 'cancel' = ANY(action_ids),
+    format('Should have cancel button, got %s', action_ids);
+
+  RAISE NOTICE 'PASS: Test 37 - Block Kit for CUSTOMER_CONFIRMATION_REQUIRED';
+END;
+$$;
+
+-- ============================================================
+-- Test 38: Block Kit for terminal state (COMPLETED) has no actions
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  kit jsonb;
+  actions_block jsonb;
+BEGIN
+  req := create_capacity_request(
+    'U_bk6', 'U_comm_bk6', 'infra-bk6',
+    '{"org_id": "org_bk6"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30,
+    5000, 7, 'C_BLOCKKIT6'
+  );
+  req := apply_capacity_event(req.id, 'COMMERCIAL_APPROVED', 'user', 'U_comm_bk6');
+  req := apply_capacity_event(req.id, 'TECH_REVIEW_APPROVED', 'user', 'U_infra_bk6');
+  req := apply_capacity_event(req.id, 'CUSTOMER_CONFIRMED', 'user', 'U_customer_bk6');
+  req := apply_capacity_event(req.id, 'PROVISIONING_COMPLETE', 'system', 'provisioner');
+  ASSERT req.state = 'COMPLETED', 'Setup failed';
+
+  kit := build_block_kit_message(req, 'PROVISIONING', 'COMPLETED', 'PROVISIONING_COMPLETE');
+
+  SELECT b INTO actions_block
+  FROM jsonb_array_elements(kit->'blocks') AS b
+  WHERE b->>'type' = 'actions';
+
+  ASSERT actions_block IS NULL,
+    'Terminal state should have no actions block';
+
+  RAISE NOTICE 'PASS: Test 38 - Block Kit for terminal state has no actions';
+END;
+$$;
+
+-- ============================================================
+-- Test 39: VP approve via interactive payload maps to VP_APPROVED
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  result json;
+  raw_body text;
+  payload_json text;
+BEGIN
+  -- Create high-cost request in UNDER_REVIEW
+  req := create_capacity_request(
+    'U_vpa1', 'U_comm_vpa1', 'infra-vpa1',
+    '{"org_id": "org_vpa1"}'::jsonb,
+    '32XL', 10, 'us-east-1', '2026-03-01'::date, 90,
+    100000, 7, 'C_VPA'
+  );
+
+  -- Build a fake interactive payload for vp_approve
+  payload_json := json_build_object(
+    'type', 'block_actions',
+    'user', json_build_object('id', 'U_vp_approver'),
+    'actions', json_build_array(json_build_object(
+      'action_id', 'vp_approve',
+      'value', req.id
+    ))
+  )::text;
+
+  -- Simulate Slack signature verification by inserting a vault secret
+  BEGIN
+    PERFORM vault.create_secret('test-signing-secret', 'SLACK_SIGNING_SECRET');
+  EXCEPTION WHEN unique_violation THEN NULL;
+  END;
+
+  -- Build form-encoded body
+  raw_body := 'payload=' || replace(replace(replace(payload_json, '{', '%7B'), '}', '%7D'), '"', '%22');
+
+  -- Set headers with valid timestamp
+  PERFORM set_config('request.headers', json_build_object(
+    'x-slack-signature', 'v0=' || encode(
+      hmac(
+        'v0:' || extract(epoch FROM now())::bigint::text || ':' || raw_body,
+        'test-signing-secret',
+        'sha256'
+      ), 'hex'),
+    'x-slack-request-timestamp', extract(epoch FROM now())::bigint::text
+  )::text, true);
+
+  result := handle_slack_webhook(raw_body);
+
+  -- After VP approve, state should reflect VP_APPROVED event applied
+  SELECT * INTO req FROM capacity_requests WHERE id = req.id;
+  ASSERT req.vp_approved_at IS NOT NULL,
+    'vp_approved_at should be set after VP approve action';
+
+  RAISE NOTICE 'PASS: Test 39 - VP approve via interactive payload';
+END;
+$$;
+
+-- ============================================================
+-- Test 40: VP reject via interactive payload maps to VP_REJECTED
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  result json;
+  raw_body text;
+  payload_json text;
+BEGIN
+  -- Create high-cost request in UNDER_REVIEW
+  req := create_capacity_request(
+    'U_vpr1', 'U_comm_vpr1', 'infra-vpr1',
+    '{"org_id": "org_vpr1"}'::jsonb,
+    '32XL', 10, 'us-east-1', '2026-03-01'::date, 90,
+    100000, 7, 'C_VPR'
+  );
+
+  payload_json := json_build_object(
+    'type', 'block_actions',
+    'user', json_build_object('id', 'U_vp_rejector'),
+    'actions', json_build_array(json_build_object(
+      'action_id', 'vp_reject',
+      'value', req.id
+    ))
+  )::text;
+
+  raw_body := 'payload=' || replace(replace(replace(payload_json, '{', '%7B'), '}', '%7D'), '"', '%22');
+
+  PERFORM set_config('request.headers', json_build_object(
+    'x-slack-signature', 'v0=' || encode(
+      hmac(
+        'v0:' || extract(epoch FROM now())::bigint::text || ':' || raw_body,
+        'test-signing-secret',
+        'sha256'
+      ), 'hex'),
+    'x-slack-request-timestamp', extract(epoch FROM now())::bigint::text
+  )::text, true);
+
+  result := handle_slack_webhook(raw_body);
+
+  SELECT * INTO req FROM capacity_requests WHERE id = req.id;
+  ASSERT req.state = 'REJECTED',
+    format('Expected REJECTED after VP reject, got %s', req.state);
+
+  RAISE NOTICE 'PASS: Test 40 - VP reject via interactive payload';
+END;
+$$;
+
+-- ============================================================
+-- Test 41: /capacity list returns user's requests
+-- ============================================================
+DO $$
+DECLARE
+  result json;
+  raw_body text;
+BEGIN
+  -- Create some requests for a specific user
+  PERFORM create_capacity_request(
+    'U_list_user', 'U_comm_list', 'infra-list',
+    '{"org_id": "org_list"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30,
+    5000, 7, 'C_LIST'
+  );
+
+  raw_body := 'command=%2Fcapacity&text=list&user_id=U_list_user&channel_id=C_LIST';
+
+  PERFORM set_config('request.headers', json_build_object(
+    'x-slack-signature', 'v0=' || encode(
+      hmac(
+        'v0:' || extract(epoch FROM now())::bigint::text || ':' || raw_body,
+        'test-signing-secret',
+        'sha256'
+      ), 'hex'),
+    'x-slack-request-timestamp', extract(epoch FROM now())::bigint::text
+  )::text, true);
+
+  result := handle_slack_webhook(raw_body);
+
+  ASSERT result->>'response_type' = 'ephemeral',
+    format('Expected ephemeral response, got %s', result->>'response_type');
+  ASSERT result->>'text' LIKE '%CR-%',
+    format('Expected request IDs in list, got: %s', result->>'text');
+
+  RAISE NOTICE 'PASS: Test 41 - /capacity list returns user requests';
+END;
+$$;
+
+-- ============================================================
+-- Test 42: /capacity view <id> returns Block Kit with blocks
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  result json;
+  raw_body text;
+BEGIN
+  req := create_capacity_request(
+    'U_view_user', 'U_comm_view', 'infra-view',
+    '{"org_id": "org_view"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30,
+    5000, 7, 'C_VIEW'
+  );
+
+  raw_body := 'command=%2Fcapacity&text=view+' || req.id || '&user_id=U_view_user&channel_id=C_VIEW';
+
+  PERFORM set_config('request.headers', json_build_object(
+    'x-slack-signature', 'v0=' || encode(
+      hmac(
+        'v0:' || extract(epoch FROM now())::bigint::text || ':' || raw_body,
+        'test-signing-secret',
+        'sha256'
+      ), 'hex'),
+    'x-slack-request-timestamp', extract(epoch FROM now())::bigint::text
+  )::text, true);
+
+  result := handle_slack_webhook(raw_body);
+
+  ASSERT result->>'response_type' = 'ephemeral',
+    format('Expected ephemeral response, got %s', result->>'response_type');
+  ASSERT (result::jsonb) ? 'blocks',
+    'View response should have blocks key';
+
+  RAISE NOTICE 'PASS: Test 42 - /capacity view returns Block Kit';
+END;
+$$;
+
+-- ============================================================
+-- Test 43: /capacity view with bad ID returns error
+-- ============================================================
+DO $$
+DECLARE
+  result json;
+  raw_body text;
+BEGIN
+  raw_body := 'command=%2Fcapacity&text=view+CR-2026-999999&user_id=U_view_user&channel_id=C_VIEW';
+
+  PERFORM set_config('request.headers', json_build_object(
+    'x-slack-signature', 'v0=' || encode(
+      hmac(
+        'v0:' || extract(epoch FROM now())::bigint::text || ':' || raw_body,
+        'test-signing-secret',
+        'sha256'
+      ), 'hex'),
+    'x-slack-request-timestamp', extract(epoch FROM now())::bigint::text
+  )::text, true);
+
+  result := handle_slack_webhook(raw_body);
+
+  ASSERT result->>'response_type' = 'ephemeral',
+    format('Expected ephemeral, got %s', result->>'response_type');
+  ASSERT result->>'text' LIKE '%not found%',
+    format('Expected not found message, got: %s', result->>'text');
+
+  RAISE NOTICE 'PASS: Test 43 - /capacity view bad ID returns error';
+END;
+$$;
+
+-- ============================================================
+-- Test 44: /capacity help returns help text
+-- ============================================================
+DO $$
+DECLARE
+  result json;
+  raw_body text;
+BEGIN
+  raw_body := 'command=%2Fcapacity&text=help&user_id=U_help_user&channel_id=C_HELP';
+
+  PERFORM set_config('request.headers', json_build_object(
+    'x-slack-signature', 'v0=' || encode(
+      hmac(
+        'v0:' || extract(epoch FROM now())::bigint::text || ':' || raw_body,
+        'test-signing-secret',
+        'sha256'
+      ), 'hex'),
+    'x-slack-request-timestamp', extract(epoch FROM now())::bigint::text
+  )::text, true);
+
+  result := handle_slack_webhook(raw_body);
+
+  ASSERT result->>'response_type' = 'ephemeral',
+    format('Expected ephemeral, got %s', result->>'response_type');
+  ASSERT result->>'text' LIKE '%help%' OR result->>'text' LIKE '%list%',
+    format('Expected help text with commands, got: %s', result->>'text');
+
+  RAISE NOTICE 'PASS: Test 44 - /capacity help returns help text';
+END;
+$$;
+
+-- ============================================================
+-- Test 45: Empty /capacity returns help (changed from usage)
+-- ============================================================
+DO $$
+DECLARE
+  result json;
+  raw_body text;
+BEGIN
+  raw_body := 'command=%2Fcapacity&text=&user_id=U_empty_user&channel_id=C_EMPTY';
+
+  PERFORM set_config('request.headers', json_build_object(
+    'x-slack-signature', 'v0=' || encode(
+      hmac(
+        'v0:' || extract(epoch FROM now())::bigint::text || ':' || raw_body,
+        'test-signing-secret',
+        'sha256'
+      ), 'hex'),
+    'x-slack-request-timestamp', extract(epoch FROM now())::bigint::text
+  )::text, true);
+
+  result := handle_slack_webhook(raw_body);
+
+  ASSERT result->>'response_type' = 'ephemeral',
+    format('Expected ephemeral, got %s', result->>'response_type');
+  ASSERT result->>'text' LIKE '%help%' OR result->>'text' LIKE '%list%' OR result->>'text' LIKE '%view%',
+    format('Expected help text with available commands, got: %s', result->>'text');
+
+  RAISE NOTICE 'PASS: Test 45 - Empty /capacity returns help';
+END;
+$$;
+
+-- ============================================================
+-- Test 46: handle_slack_modal_submission() creates request
+-- ============================================================
+DO $$
+DECLARE
+  result json;
+  modal_payload text;
+  req_count_before integer;
+  req_count_after integer;
+BEGIN
+  SELECT count(*) INTO req_count_before FROM capacity_requests;
+
+  -- Build a view_submission payload matching Slack's format
+  modal_payload := json_build_object(
+    'type', 'view_submission',
+    'user', json_build_object('id', 'U_modal_user'),
+    'view', json_build_object(
+      'private_metadata', 'C_MODAL_CHANNEL',
+      'state', json_build_object(
+        'values', json_build_object(
+          'size', json_build_object('size_select', json_build_object('type', 'static_select', 'selected_option', json_build_object('value', '32XL'))),
+          'region', json_build_object('region_select', json_build_object('type', 'static_select', 'selected_option', json_build_object('value', 'us-east-1'))),
+          'quantity', json_build_object('quantity_input', json_build_object('type', 'number_input', 'value', '2')),
+          'duration', json_build_object('duration_input', json_build_object('type', 'number_input', 'value', '90')),
+          'needed_by', json_build_object('needed_by_picker', json_build_object('type', 'datepicker', 'selected_date', '2026-06-01')),
+          'cost', json_build_object('cost_input', json_build_object('type', 'number_input', 'value', '15000')),
+          'customer', json_build_object('customer_input', json_build_object('type', 'plain_text_input', 'value', 'Modal Corp')),
+          'commercial_owner', json_build_object('commercial_owner_select', json_build_object('type', 'users_select', 'selected_user', 'U_comm_modal')),
+          'infra_group', json_build_object('infra_group_input', json_build_object('type', 'plain_text_input', 'value', 'infra-modal'))
+        )
+      )
+    )
+  )::text;
+
+  result := handle_slack_modal_submission(modal_payload);
+
+  -- NULL result means success (modal closes)
+  ASSERT result IS NULL, format('Expected NULL (close modal), got %s', result::text);
+
+  SELECT count(*) INTO req_count_after FROM capacity_requests;
+  ASSERT req_count_after = req_count_before + 1,
+    format('Expected one new request, before=%s after=%s', req_count_before, req_count_after);
+
+  RAISE NOTICE 'PASS: Test 46 - Modal submission creates request';
+END;
+$$;
+
+-- ============================================================
+-- Test 47: Modal submission with missing required fields returns error
+-- ============================================================
+DO $$
+DECLARE
+  result json;
+  modal_payload text;
+BEGIN
+  -- Missing size and region
+  modal_payload := json_build_object(
+    'type', 'view_submission',
+    'user', json_build_object('id', 'U_modal_bad'),
+    'view', json_build_object(
+      'private_metadata', 'C_MODAL_BAD',
+      'state', json_build_object(
+        'values', json_build_object(
+          'quantity', json_build_object('quantity_input', json_build_object('type', 'number_input', 'value', '2')),
+          'duration', json_build_object('duration_input', json_build_object('type', 'number_input', 'value', '90')),
+          'needed_by', json_build_object('needed_by_picker', json_build_object('type', 'datepicker', 'selected_date', '2026-06-01'))
+        )
+      )
+    )
+  )::text;
+
+  result := handle_slack_modal_submission(modal_payload);
+
+  -- Should return an errors object for Slack to display
+  ASSERT result IS NOT NULL,
+    'Expected error response for missing fields';
+  ASSERT (result::jsonb) ? 'response_action',
+    format('Expected response_action in error, got: %s', result::text);
+
+  RAISE NOTICE 'PASS: Test 47 - Modal submission missing fields returns error';
+END;
+$$;
+
+-- ============================================================
+-- Test 48: Interactive button response includes replace_original and blocks
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  result json;
+  raw_body text;
+  payload_json text;
+BEGIN
+  req := create_capacity_request(
+    'U_btn1', 'U_comm_btn1', 'infra-btn1',
+    '{"org_id": "org_btn1"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30,
+    5000, 7, 'C_BTN'
+  );
+
+  payload_json := json_build_object(
+    'type', 'block_actions',
+    'user', json_build_object('id', 'U_comm_btn1'),
+    'actions', json_build_array(json_build_object(
+      'action_id', 'commercial_approve',
+      'value', req.id
+    ))
+  )::text;
+
+  raw_body := 'payload=' || replace(replace(replace(payload_json, '{', '%7B'), '}', '%7D'), '"', '%22');
+
+  PERFORM set_config('request.headers', json_build_object(
+    'x-slack-signature', 'v0=' || encode(
+      hmac(
+        'v0:' || extract(epoch FROM now())::bigint::text || ':' || raw_body,
+        'test-signing-secret',
+        'sha256'
+      ), 'hex'),
+    'x-slack-request-timestamp', extract(epoch FROM now())::bigint::text
+  )::text, true);
+
+  result := handle_slack_webhook(raw_body);
+
+  ASSERT (result::jsonb)->>'replace_original' = 'true',
+    format('Expected replace_original=true, got: %s', result::text);
+  ASSERT (result::jsonb) ? 'blocks',
+    format('Expected blocks in response, got: %s', result::text);
+
+  RAISE NOTICE 'PASS: Test 48 - Interactive button response has replace_original and blocks';
+END;
+$$;
+
+-- ============================================================
 -- Summary
 -- ============================================================
 DO $$

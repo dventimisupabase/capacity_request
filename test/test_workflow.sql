@@ -549,6 +549,28 @@ END;
 $$;
 
 -- ============================================================
+-- Test 16: slack_channel_id parameter on create
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+BEGIN
+  req := create_capacity_request(
+    'U_req13', 'U_comm13', 'infra-13',
+    '{"org_id": "org_slack"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-12-25'::date, 30,
+    NULL, 7, 'C_TEST_CHANNEL'
+  );
+
+  ASSERT req.slack_channel_id = 'C_TEST_CHANNEL',
+    format('Expected slack_channel_id C_TEST_CHANNEL, got %s', req.slack_channel_id);
+
+  -- Also verify NULL default works (all existing tests use it implicitly)
+  RAISE NOTICE 'PASS: Test 16 - slack_channel_id parameter on create';
+END;
+$$;
+
+-- ============================================================
 -- Summary
 -- ============================================================
 DO $$

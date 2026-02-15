@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Capacity Request Workflow</title>
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#1a1a2e;--bg-card:#16213e;--accent:#3ecf8e;--purple:#6c63ff;
+    --rose:#f43f5e;--amber:#f59e0b;--text:#e2e8f0;--muted:#94a3b8;
+    --radius:12px;--transition:0.5s cubic-bezier(.4,0,.2,1);
+  }
+  html,body{height:100%;overflow:hidden;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text)}
+  /* ── Slide container ── */
+  .deck{position:relative;width:100%;height:100%}
+  .slide{
+    position:absolute;inset:0;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;padding:3rem 4rem;
+    opacity:0;pointer-events:none;
+    transition:opacity var(--transition),transform var(--transition);
+  }
+  .slide.enter-right{transform:translateX(60px)}
+  .slide.enter-left{transform:translateX(-60px)}
+  .slide.active{opacity:1;transform:translateX(0);pointer-events:auto}
+  .slide.exit-left{opacity:0;transform:translateX(-60px)}
+  .slide.exit-right{opacity:0;transform:translateX(60px)}
+  /* ── Typography ── */
+  h1{font-size:clamp(2rem,4vw,3.5rem);font-weight:700;letter-spacing:-.02em;line-height:1.15}
+  h2{font-size:clamp(1.5rem,3vw,2.4rem);font-weight:600;margin-bottom:1.2rem}
+  h3{font-size:1.15rem;font-weight:600;margin-bottom:.6rem;color:var(--accent)}
+  p,.desc{font-size:clamp(.9rem,1.3vw,1.1rem);color:var(--muted);line-height:1.6;max-width:56ch}
+  .accent{color:var(--accent)}.purple{color:var(--purple)}.rose{color:var(--rose)}.amber{color:var(--amber)}
+  .tag{display:inline-block;padding:.15em .55em;border-radius:6px;font-size:.82rem;font-weight:600;margin:.15rem}
+  .tag-green{background:#3ecf8e22;color:var(--accent)}
+  .tag-purple{background:#6c63ff22;color:var(--purple)}
+  .tag-rose{background:#f43f5e22;color:var(--rose)}
+  .tag-amber{background:#f59e0b22;color:var(--amber)}
+  /* ── Cards ── */
+  .card{
+    background:var(--bg-card);border:1px solid #ffffff0d;border-radius:var(--radius);
+    padding:1.5rem;flex:1;min-width:0;
+  }
+  .card-icon{font-size:1.8rem;margin-bottom:.6rem;display:block}
+  .cards-row{display:flex;gap:1.2rem;width:100%;max-width:1100px;margin-top:1rem}
+  /* ── Navigation ── */
+  .nav{
+    position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);
+    display:flex;align-items:center;gap:.7rem;z-index:100;
+    background:#16213ecc;backdrop-filter:blur(8px);padding:.5rem 1.2rem;
+    border-radius:999px;border:1px solid #ffffff12;
+  }
+  .nav .dot{
+    width:10px;height:10px;border-radius:50%;background:#94a3b844;
+    cursor:pointer;transition:background .3s,transform .3s;
+  }
+  .nav .dot.active{background:var(--accent);transform:scale(1.35)}
+  .nav .counter{font-size:.8rem;color:var(--muted);margin-left:.6rem;min-width:3.5ch;text-align:right}
+  /* ── Architecture diagram ── */
+  .arch-stack{display:flex;align-items:center;gap:0;margin:1.5rem 0;flex-wrap:wrap;justify-content:center}
+  .arch-box{
+    background:var(--bg-card);border:1.5px solid var(--accent);border-radius:10px;
+    padding:.7rem 1.1rem;font-size:.92rem;font-weight:600;text-align:center;position:relative;
+  }
+  .arch-arrow{color:var(--accent);font-size:1.3rem;margin:0 .25rem;flex-shrink:0}
+  .ext-labels{display:flex;gap:1rem;margin-top:1rem;flex-wrap:wrap;justify-content:center}
+  .ext-label{font-size:.8rem;color:var(--muted);background:#ffffff08;padding:.3rem .7rem;border-radius:6px}
+  .callout{
+    margin-top:1.4rem;padding:.8rem 1.2rem;border-left:3px solid var(--accent);
+    background:#3ecf8e0a;border-radius:0 8px 8px 0;font-size:.95rem;max-width:700px;
+  }
+  /* ── State Machine SVG ── */
+  .state-machine-wrap{width:100%;max-width:1050px;margin:0 auto;overflow:visible}
+  .state-machine-wrap svg{width:100%;height:auto}
+  .sm-node rect{rx:10;ry:10;stroke-width:2;transition:fill .4s,stroke .4s}
+  .sm-node text{fill:var(--text);font-size:11px;font-weight:600;text-anchor:middle;dominant-baseline:central;font-family:inherit}
+  .sm-edge line,.sm-edge path{stroke:var(--muted);stroke-width:1.5;fill:none;marker-end:url(#arrow)}
+  .sm-edge text{fill:var(--muted);font-size:8.5px;font-family:inherit}
+  .sm-node.highlight rect{stroke:white;stroke-width:3;filter:drop-shadow(0 0 10px var(--accent))}
+  /* ── Happy path animation ── */
+  .hp-steps{display:flex;flex-direction:column;gap:.7rem;width:100%;max-width:900px;margin-top:.8rem}
+  .hp-step{
+    display:flex;align-items:center;gap:1rem;padding:.7rem 1rem;
+    border-radius:10px;background:var(--bg-card);border:1.5px solid transparent;
+    opacity:.35;transform:translateX(20px);transition:all .45s ease;
+  }
+  .hp-step.visible{opacity:1;transform:translateX(0)}
+  .hp-step.current{border-color:var(--accent);background:#3ecf8e0c}
+  .hp-step .num{
+    width:2rem;height:2rem;border-radius:50%;display:flex;align-items:center;justify-content:center;
+    font-size:.8rem;font-weight:700;background:var(--accent);color:var(--bg);flex-shrink:0;
+  }
+  .hp-step .num.done{background:var(--purple)}
+  .hp-step .lbl{flex:1;font-size:.88rem}
+  .hp-step .state-tag{font-size:.75rem;padding:.15em .5em;border-radius:5px;background:#3ecf8e22;color:var(--accent);white-space:nowrap}
+  .hp-controls{display:flex;gap:.7rem;margin-top:.7rem;align-items:center}
+  .hp-btn{
+    background:var(--bg-card);border:1.5px solid var(--accent);color:var(--accent);
+    padding:.4rem 1rem;border-radius:8px;cursor:pointer;font-size:.85rem;font-weight:600;
+    transition:background .2s;
+  }
+  .hp-btn:hover{background:#3ecf8e18}
+  .hp-btn.active{background:var(--accent);color:var(--bg)}
+  /* ── Unhappy paths ── */
+  .unhappy-cards{display:flex;gap:1.2rem;width:100%;max-width:1100px;margin-top:1rem}
+  .ucard{flex:1;min-width:0}
+  .ucard .path-arrow{display:flex;align-items:center;gap:.5rem;margin:.6rem 0;font-size:.85rem;color:var(--muted)}
+  .ucard .path-arrow .st{padding:.2em .5em;border-radius:5px;font-weight:600;font-size:.8rem}
+  .ucard .path-arrow .ev{color:var(--purple);font-style:italic;font-size:.78rem}
+  /* ── Data flow ── */
+  .flow-steps{display:flex;flex-direction:column;gap:0;width:100%;max-width:750px;margin-top:.6rem}
+  .flow-step{display:flex;align-items:flex-start;gap:1rem;position:relative;padding:.55rem 0}
+  .flow-step:not(:last-child)::after{
+    content:'';position:absolute;left:15px;top:2.2rem;width:2px;height:calc(100% - 1rem);background:var(--purple);opacity:.35;
+  }
+  .flow-num{
+    width:1.8rem;height:1.8rem;border-radius:50%;display:flex;align-items:center;justify-content:center;
+    font-size:.75rem;font-weight:700;background:var(--purple);color:white;flex-shrink:0;position:relative;z-index:1;
+  }
+  .flow-text{font-size:.85rem;line-height:1.45;flex:1}
+  .flow-text strong{color:var(--accent)}
+  .flow-text code{background:#ffffff0d;padding:.1em .35em;border-radius:4px;font-size:.8rem;color:var(--purple)}
+  /* ── Security & Reliability two-col ── */
+  .two-col{display:flex;gap:2rem;width:100%;max-width:1050px;margin-top:1rem}
+  .two-col .col{flex:1;min-width:0}
+  .two-col .col h3{font-size:1.1rem;margin-bottom:.7rem}
+  .sec-item{margin-bottom:.7rem;padding:.55rem .8rem;border-radius:8px;background:var(--bg-card);font-size:.85rem;line-height:1.45}
+  .sec-item strong{color:var(--text)}
+  /* ── Rollout timeline ── */
+  .timeline{display:flex;gap:1.5rem;width:100%;max-width:1100px;margin-top:1.2rem;position:relative}
+  .timeline::before{
+    content:'';position:absolute;top:1.1rem;left:0;right:0;height:3px;
+    background:linear-gradient(90deg,var(--accent),var(--purple),var(--amber));border-radius:2px;
+  }
+  .phase{flex:1;min-width:0;position:relative;padding-top:2rem}
+  .phase-dot{
+    width:1.1rem;height:1.1rem;border-radius:50%;position:absolute;top:.45rem;left:1rem;z-index:1;
+  }
+  .phase ul{list-style:none;padding:0}
+  .phase li{font-size:.82rem;color:var(--muted);padding:.2rem 0;padding-left:1rem;position:relative}
+  .phase li::before{content:'→';position:absolute;left:0;color:var(--accent)}
+  /* ── Responsive ── */
+  @media(max-width:900px){
+    .slide{padding:2rem 1.5rem}
+    .cards-row,.unhappy-cards,.two-col,.timeline{flex-direction:column}
+    .arch-stack{gap:.3rem}
+  }
+  @media(max-width:600px){
+    .slide{padding:1.5rem 1rem}
+    h1{font-size:1.8rem} h2{font-size:1.3rem}
+  }
+</style>
+</head>
+<body>
+
+<div class="deck" id="deck">
+
+<!-- ════════════ SLIDE 1 — Title ════════════ -->
+<div class="slide active" data-slide="0">
+  <h1 style="text-align:center">Capacity Request<br><span class="accent">Workflow</span></h1>
+  <p style="text-align:center;margin-top:1rem;font-size:clamp(.95rem,1.4vw,1.2rem)">
+    Control-plane anchored · Supabase-native · No Edge Functions
+  </p>
+  <div style="margin-top:2.5rem;display:flex;gap:1rem;flex-wrap:wrap;justify-content:center">
+    <span class="tag tag-green">PostgreSQL</span>
+    <span class="tag tag-green">PostgREST</span>
+    <span class="tag tag-purple">pg_net</span>
+    <span class="tag tag-purple">pg_cron</span>
+    <span class="tag tag-purple">Vault</span>
+    <span class="tag tag-purple">pgcrypto</span>
+  </div>
+  <p style="margin-top:3rem;font-size:.85rem;color:var(--muted)">Press <kbd style="background:#ffffff12;padding:.15em .45em;border-radius:4px">→</kbd> or <kbd style="background:#ffffff12;padding:.15em .45em;border-radius:4px">Space</kbd> to navigate</p>
+</div>
+
+<!-- ════════════ SLIDE 2 — The Problem ════════════ -->
+<div class="slide" data-slide="1">
+  <h2>The <span class="rose">Problem</span></h2>
+  <p style="margin-bottom:1.2rem">Three pain points driving the need for a structured workflow</p>
+  <div class="cards-row">
+    <div class="card">
+      <span class="card-icon">&#128172;</span>
+      <h3 style="color:var(--rose)">No Authoritative State</h3>
+      <p style="font-size:.88rem">Capacity requests live as conversations in Slack. There is no single source of truth &mdash; status is scattered across threads, DMs, and tribal knowledge.</p>
+    </div>
+    <div class="card">
+      <span class="card-icon">&#128101;</span>
+      <h3 style="color:var(--rose)">Ambiguous Decision Ownership</h3>
+      <p style="font-size:.88rem">Who has authority to approve, reject, or cancel expensive capacity? Without clear ownership, costly resources linger or decisions stall.</p>
+    </div>
+    <div class="card">
+      <span class="card-icon">&#9200;</span>
+      <h3 style="color:var(--rose)">No Lifecycle Enforcement</h3>
+      <p style="font-size:.88rem">Customers go dark after requesting capacity. Without deadlines or automated follow-ups, money burns on provisioned-but-unused infrastructure.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════ SLIDE 3 — Solution Architecture ════════════ -->
+<div class="slide" data-slide="2">
+  <h2>The <span class="accent">Solution</span></h2>
+  <p>A Postgres-native architecture &mdash; everything lives in the database</p>
+  <div class="arch-stack">
+    <div class="arch-box" style="border-color:var(--amber)">Slack</div>
+    <span class="arch-arrow">&#8596;</span>
+    <div class="arch-box" style="border-color:var(--muted)">CF Worker<br><span style="font-size:.7rem;color:var(--muted)">~15 lines</span></div>
+    <span class="arch-arrow">&#8596;</span>
+    <div class="arch-box">PostgREST</div>
+    <span class="arch-arrow">&#8596;</span>
+    <div class="arch-box" style="border-color:var(--purple)">PL/pgSQL<br><span style="font-size:.7rem;color:var(--muted)">Reducer</span></div>
+    <span class="arch-arrow">&#8594;</span>
+    <div class="arch-box" style="border-color:var(--purple)">pg_net</div>
+    <span class="arch-arrow">&#8594;</span>
+    <div class="arch-box" style="border-color:var(--amber)">Slack / Linear</div>
+  </div>
+  <div class="ext-labels">
+    <span class="ext-label">&#128274; Vault &mdash; secrets</span>
+    <span class="ext-label">&#128272; pgcrypto &mdash; HMAC</span>
+    <span class="ext-label">&#128336; pg_cron &mdash; timers</span>
+    <span class="ext-label">&#127760; pg_net &mdash; HTTP</span>
+  </div>
+  <div class="callout">
+    <strong class="accent">Key insight:</strong> Everything lives in Postgres. The only external component is a ~15-line Cloudflare Worker that rewrites Slack&rsquo;s <code style="background:#ffffff0d;padding:.1em .3em;border-radius:3px;font-size:.85rem">application/x-www-form-urlencoded</code> to <code style="background:#ffffff0d;padding:.1em .3em;border-radius:3px;font-size:.85rem">text/plain</code> for PostgREST.
+  </div>
+</div>
+
+<!-- ════════════ SLIDE 4 — State Machine ════════════ -->
+<div class="slide" data-slide="3">
+  <h2>State <span class="accent">Machine</span></h2>
+  <div class="state-machine-wrap">
+    <svg viewBox="0 0 1000 520" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+          <path d="M0,0 L8,3 L0,6" fill="var(--muted)"/>
+        </marker>
+        <marker id="arrow-g" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+          <path d="M0,0 L8,3 L0,6" fill="var(--accent)"/>
+        </marker>
+      </defs>
+
+      <!-- Nodes -->
+      <g class="sm-node" data-state="SUBMITTED">
+        <rect x="20" y="210" width="130" height="48" fill="#16213e" stroke="var(--accent)"/>
+        <text x="85" y="234">SUBMITTED</text>
+      </g>
+      <g class="sm-node" data-state="UNDER_REVIEW">
+        <rect x="220" y="210" width="165" height="48" fill="#16213e" stroke="var(--accent)"/>
+        <text x="302" y="228">UNDER_REVIEW</text>
+        <text x="302" y="244" style="font-size:8px;fill:var(--muted);font-weight:400">&#9872; commercial &amp; &#9881; technical</text>
+      </g>
+      <g class="sm-node" data-state="CUSTOMER_CONFIRMATION_REQUIRED">
+        <rect x="460" y="210" width="155" height="48" fill="#16213e" stroke="var(--accent)"/>
+        <text x="537" y="228" style="font-size:9.5px">CUSTOMER_CONFIRM</text>
+        <text x="537" y="244" style="font-size:9.5px">_REQUIRED</text>
+      </g>
+      <g class="sm-node" data-state="PROVISIONING">
+        <rect x="690" y="210" width="130" height="48" fill="#16213e" stroke="var(--accent)"/>
+        <text x="755" y="234">PROVISIONING</text>
+      </g>
+      <g class="sm-node" data-state="COMPLETED">
+        <rect x="890" y="210" width="100" height="48" fill="#16213e" stroke="var(--accent)"/>
+        <text x="940" y="234">COMPLETED</text>
+      </g>
+      <!-- Terminal: REJECTED -->
+      <g class="sm-node" data-state="REJECTED">
+        <rect x="260" y="410" width="110" height="44" fill="#16213e" stroke="var(--rose)"/>
+        <text x="315" y="432" style="fill:var(--rose)">REJECTED</text>
+      </g>
+      <!-- Terminal: EXPIRED -->
+      <g class="sm-node" data-state="EXPIRED">
+        <rect x="490" y="410" width="100" height="44" fill="#16213e" stroke="var(--amber)"/>
+        <text x="540" y="432" style="fill:var(--amber)">EXPIRED</text>
+      </g>
+      <!-- Terminal: CANCELLED -->
+      <g class="sm-node" data-state="CANCELLED">
+        <rect x="490" y="60" width="110" height="44" fill="#16213e" stroke="var(--rose)"/>
+        <text x="545" y="82" style="fill:var(--rose)">CANCELLED</text>
+      </g>
+      <!-- Terminal: FAILED -->
+      <g class="sm-node" data-state="FAILED">
+        <rect x="720" y="410" width="100" height="44" fill="#16213e" stroke="var(--rose)"/>
+        <text x="770" y="432" style="fill:var(--rose)">FAILED</text>
+      </g>
+
+      <!-- ── Edges ── -->
+      <!-- SUBMITTED → UNDER_REVIEW -->
+      <g class="sm-edge">
+        <line x1="150" y1="234" x2="218" y2="234"/>
+        <text x="170" y="226" style="font-size:7.5px">REQUEST_SUBMITTED</text>
+      </g>
+      <!-- UNDER_REVIEW → CUSTOMER_CONFIRMATION_REQUIRED (both approved) -->
+      <g class="sm-edge">
+        <line x1="385" y1="234" x2="458" y2="234"/>
+        <text x="396" y="226" style="font-size:7.5px">Both approved</text>
+      </g>
+      <!-- CUSTOMER_CONFIRMATION_REQUIRED → PROVISIONING -->
+      <g class="sm-edge">
+        <line x1="615" y1="234" x2="688" y2="234"/>
+        <text x="627" y="226" style="font-size:7.5px">CUSTOMER_CONFIRMED</text>
+      </g>
+      <!-- PROVISIONING → COMPLETED -->
+      <g class="sm-edge">
+        <line x1="820" y1="234" x2="888" y2="234"/>
+        <text x="830" y="226" style="font-size:7px">PROVISIONING_COMPLETE</text>
+      </g>
+      <!-- UNDER_REVIEW → REJECTED -->
+      <g class="sm-edge">
+        <path d="M302,258 L302,370 L315,408"/>
+        <text x="235" y="340" style="font-size:7px">COMMERCIAL_REJECTED</text>
+        <text x="235" y="350" style="font-size:7px">TECH_REVIEW_REJECTED</text>
+      </g>
+      <!-- CUSTOMER_CONFIRMATION_REQUIRED → EXPIRED -->
+      <g class="sm-edge">
+        <line x1="537" y1="258" x2="540" y2="408"/>
+        <text x="548" y="340" style="font-size:7px">TIMEOUT (pg_cron)</text>
+      </g>
+      <!-- CUSTOMER_CONFIRMATION_REQUIRED → CANCELLED (declined) -->
+      <g class="sm-edge">
+        <path d="M537,210 L537,150 L545,106"/>
+        <text x="546" y="168" style="font-size:7px">CUSTOMER_DECLINED</text>
+      </g>
+      <!-- PROVISIONING → FAILED -->
+      <g class="sm-edge">
+        <line x1="755" y1="258" x2="770" y2="408"/>
+        <text x="766" y="340" style="font-size:7px">PROVISIONING_FAILED</text>
+      </g>
+      <!-- CANCEL_APPROVED (dashed, from various) -->
+      <g class="sm-edge" style="opacity:.55">
+        <line x1="85" y1="210" x2="488" y2="104" stroke-dasharray="5,3" style="stroke:var(--rose)"/>
+        <text x="200" y="136" style="font-size:7px;fill:var(--rose)">CANCEL_APPROVED (from any non-terminal)</text>
+      </g>
+
+      <!-- Legend -->
+      <g transform="translate(20,470)">
+        <rect x="0" y="0" width="12" height="12" rx="3" fill="none" stroke="var(--accent)" stroke-width="2"/>
+        <text x="18" y="10" style="font-size:9px;fill:var(--muted);font-family:inherit">Active state</text>
+        <rect x="120" y="0" width="12" height="12" rx="3" fill="none" stroke="var(--rose)" stroke-width="2"/>
+        <text x="138" y="10" style="font-size:9px;fill:var(--muted);font-family:inherit">Terminal (error/cancel)</text>
+        <rect x="290" y="0" width="12" height="12" rx="3" fill="none" stroke="var(--amber)" stroke-width="2"/>
+        <text x="308" y="10" style="font-size:9px;fill:var(--muted);font-family:inherit">Terminal (timeout)</text>
+      </g>
+    </svg>
+  </div>
+</div>
+
+<!-- ════════════ SLIDE 5 — Happy Path ════════════ -->
+<div class="slide" data-slide="4">
+  <h2>The <span class="accent">Happy Path</span></h2>
+  <div class="hp-steps" id="hp-steps">
+    <div class="hp-step" data-hp="0">
+      <div class="num">1</div>
+      <div class="lbl">SA submits via <code>/capacity</code> slash command</div>
+      <span class="state-tag">SUBMITTED → UNDER_REVIEW</span>
+    </div>
+    <div class="hp-step" data-hp="1">
+      <div class="num">2</div>
+      <div class="lbl">Commercial owner clicks <strong class="accent">Approve</strong> &mdash; flag 1 set</div>
+      <span class="state-tag" style="background:#6c63ff22;color:var(--purple)">UNDER_REVIEW (1/2)</span>
+    </div>
+    <div class="hp-step" data-hp="2">
+      <div class="num">3</div>
+      <div class="lbl">Technical reviewer clicks <strong class="accent">Approve</strong> &mdash; flag 2 set</div>
+      <span class="state-tag">→ CUSTOMER_CONFIRM</span>
+    </div>
+    <div class="hp-step" data-hp="3">
+      <div class="num">4</div>
+      <div class="lbl">Customer confirms within 7-day window</div>
+      <span class="state-tag">→ PROVISIONING</span>
+    </div>
+    <div class="hp-step" data-hp="4">
+      <div class="num">5</div>
+      <div class="lbl">Provisioning completes &amp; verified</div>
+      <span class="state-tag">→ COMPLETED</span>
+    </div>
+  </div>
+  <div class="hp-controls">
+    <button class="hp-btn" id="hp-play" title="Auto-play">&#9654; Play</button>
+    <button class="hp-btn" id="hp-prev" title="Previous step">&#9664;</button>
+    <button class="hp-btn" id="hp-next" title="Next step">&#9654;</button>
+    <button class="hp-btn" id="hp-reset" title="Reset">&#8634; Reset</button>
+    <span style="font-size:.8rem;color:var(--muted)" id="hp-counter"></span>
+  </div>
+</div>
+
+<!-- ════════════ SLIDE 6 — Unhappy Paths ════════════ -->
+<div class="slide" data-slide="5">
+  <h2>The <span class="rose">Unhappy Paths</span></h2>
+  <p style="margin-bottom:.5rem">Three scenarios the system handles automatically</p>
+  <div class="unhappy-cards">
+    <div class="card ucard">
+      <h3 style="color:var(--amber)">&#9200; Customer Goes Dark</h3>
+      <p style="font-size:.85rem;color:var(--muted);margin-bottom:.5rem"><code>pg_cron</code> sweeps every 5 minutes for expired deadlines</p>
+      <div class="path-arrow">
+        <span class="st tag-green">CUSTOMER_CONFIRM</span>
+        <span class="ev">TIMEOUT</span>
+        <span>→</span>
+        <span class="st tag-amber">EXPIRED</span>
+      </div>
+      <p style="font-size:.82rem;color:var(--muted)">7-day TTL (configurable). Slack thread notified automatically.</p>
+    </div>
+    <div class="card ucard">
+      <h3 style="color:var(--rose)">&#10060; Review Rejected</h3>
+      <p style="font-size:.85rem;color:var(--muted);margin-bottom:.5rem">Either reviewer can reject with a reason</p>
+      <div class="path-arrow">
+        <span class="st tag-green">UNDER_REVIEW</span>
+        <span class="ev">REJECTED</span>
+        <span>→</span>
+        <span class="st tag-rose">REJECTED</span>
+      </div>
+      <p style="font-size:.82rem;color:var(--muted)">Immediate terminal state. Rejection reason stored in event payload.</p>
+    </div>
+    <div class="card ucard">
+      <h3 style="color:var(--rose)">&#128683; Cancel Mid-Flight</h3>
+      <p style="font-size:.85rem;color:var(--muted);margin-bottom:.5rem">Authorized actor can cancel from any non-terminal state</p>
+      <div class="path-arrow">
+        <span class="st tag-purple">Any active</span>
+        <span class="ev">CANCEL_APPROVED</span>
+        <span>→</span>
+        <span class="st tag-rose">CANCELLED</span>
+      </div>
+      <p style="font-size:.82rem;color:var(--muted)">Requires authorization. Reason &amp; authorizer recorded.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════ SLIDE 7 — Data Flow ════════════ -->
+<div class="slide" data-slide="6">
+  <h2>Data <span class="purple">Flow Detail</span></h2>
+  <p style="margin-bottom:.3rem">How a Slack button click becomes a state transition</p>
+  <div class="flow-steps">
+    <div class="flow-step">
+      <div class="flow-num">1</div>
+      <div class="flow-text">User clicks <strong>"Approve"</strong> button in Slack message</div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">2</div>
+      <div class="flow-text">Slack POSTs <code>application/x-www-form-urlencoded</code> to <strong>Cloudflare Worker</strong></div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">3</div>
+      <div class="flow-text">Worker rewrites <code>Content-Type</code> → forwards raw body to <strong>PostgREST</strong></div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">4</div>
+      <div class="flow-text">PostgREST calls <code>handle_slack_webhook(text)</code> via single unnamed parameter</div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">5</div>
+      <div class="flow-text">PL/pgSQL <strong>verifies Slack HMAC signature</strong> (two-layer: pre-request hook + <code>pgcrypto</code>)</div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">6</div>
+      <div class="flow-text"><strong>Reducer:</strong> lock row <code>FOR UPDATE</code> → <code>compute_next_state()</code> → insert event → update projection</div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">7</div>
+      <div class="flow-text"><code>pg_net</code> enqueues Slack notification <strong>(delivered only after commit)</strong></div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════ SLIDE 8 — Security & Reliability ════════════ -->
+<div class="slide" data-slide="7">
+  <h2>Security &amp; <span class="purple">Reliability</span></h2>
+  <div class="two-col">
+    <div class="col">
+      <h3 style="color:var(--accent)">&#128274; Security</h3>
+      <div class="sec-item">
+        <strong>Two-layer Slack verification</strong><br>
+        <span style="color:var(--muted)">Layer 1: Pre-request hook checks headers &amp; timestamp (fast reject). Layer 2: Full HMAC-SHA256 via <code style="font-size:.8rem">pgcrypto</code>.</span>
+      </div>
+      <div class="sec-item">
+        <strong>Vault secrets</strong><br>
+        <span style="color:var(--muted)">All credentials encrypted at rest. Retrieved via <code style="font-size:.8rem">SECURITY DEFINER</code> helper. Never in SQL logs.</span>
+      </div>
+      <div class="sec-item">
+        <strong>RLS policies</strong><br>
+        <span style="color:var(--muted)">Projection writable only by reducer (service role). Read access scoped by role.</span>
+      </div>
+      <div class="sec-item">
+        <strong>Actor attribution</strong><br>
+        <span style="color:var(--muted)">Every event records <code style="font-size:.8rem">actor_type</code> + <code style="font-size:.8rem">actor_id</code>. Full audit trail.</span>
+      </div>
+    </div>
+    <div class="col">
+      <h3 style="color:var(--purple)">&#128737; Reliability</h3>
+      <div class="sec-item">
+        <strong>Transactional side effects</strong><br>
+        <span style="color:var(--muted)"><code style="font-size:.8rem">pg_net</code> enqueues HTTP calls inside the transaction. If rollback → nothing sent.</span>
+      </div>
+      <div class="sec-item">
+        <strong>Phase 2: Outbox pattern</strong><br>
+        <span style="color:var(--muted)">At-least-once delivery. Reducer writes to outbox table; <code style="font-size:.8rem">pg_cron</code> polls &amp; delivers.</span>
+      </div>
+      <div class="sec-item">
+        <strong>pg_cron retry &amp; timers</strong><br>
+        <span style="color:var(--muted)">5-min sweep with <code style="font-size:.8rem">FOR UPDATE SKIP LOCKED</code>. Durable timeouts without external orchestration.</span>
+      </div>
+      <div class="sec-item">
+        <strong>Atomic transitions</strong><br>
+        <span style="color:var(--muted)">Row lock + event insert + projection update + side effect dispatch in one transaction.</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════ SLIDE 9 — Rollout ════════════ -->
+<div class="slide" data-slide="8">
+  <h2><span class="accent">Rollout</span> Phases</h2>
+  <p style="margin-bottom:.5rem">Incremental delivery — each phase is independently valuable</p>
+  <div class="timeline">
+    <div class="phase">
+      <div class="phase-dot" style="background:var(--accent)"></div>
+      <div class="card" style="border-top:3px solid var(--accent)">
+        <h3>Phase 1 &mdash; MVP</h3>
+        <p style="font-size:.82rem;color:var(--muted);margin-bottom:.5rem">Schema, reducer, Slack, timers</p>
+        <ul>
+          <li>Enable extensions (pg_net, pgcrypto, pg_cron)</li>
+          <li>Provision secrets via Vault</li>
+          <li>Tables, enums, indexes, RLS, grants</li>
+          <li>PL/pgSQL reducer &amp; side effects</li>
+          <li>Cloudflare Worker proxy (~15 LOC)</li>
+          <li>Slack slash command &amp; interactive buttons</li>
+          <li>pg_cron deadline sweep</li>
+        </ul>
+      </div>
+    </div>
+    <div class="phase">
+      <div class="phase-dot" style="background:var(--purple)"></div>
+      <div class="card" style="border-top:3px solid var(--purple)">
+        <h3 style="color:var(--purple)">Phase 2 &mdash; Polish</h3>
+        <p style="font-size:.82rem;color:var(--muted);margin-bottom:.5rem">Linear, outbox, escalation, warnings</p>
+        <ul>
+          <li>Linear issue creation via pg_net + GraphQL</li>
+          <li>Comment sync for state changes</li>
+          <li>Transactional outbox (at-least-once)</li>
+          <li>Threshold-based escalation (e.g., &gt;$X → VP)</li>
+          <li>Warning notifications ("2 days remaining")</li>
+          <li>Observability dashboard from event log</li>
+        </ul>
+      </div>
+    </div>
+    <div class="phase">
+      <div class="phase-dot" style="background:var(--amber)"></div>
+      <div class="card" style="border-top:3px solid var(--amber)">
+        <h3 style="color:var(--amber)">Phase 3 &mdash; Automation</h3>
+        <p style="font-size:.82rem;color:var(--muted);margin-bottom:.5rem">Provisioning integration, web UI, self-service</p>
+        <ul>
+          <li>Automated provisioning status integration</li>
+          <li>Optional web UI for request management</li>
+          <li>Self-service customer-facing form</li>
+          <li>Advanced reporting &amp; analytics</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /deck -->
+
+<!-- Navigation dots -->
+<nav class="nav" id="nav"></nav>
+
+<script>
+(function(){
+  'use strict';
+
+  const TOTAL = 9;
+  let current = 0;
+
+  /* ── Build nav dots ── */
+  const nav = document.getElementById('nav');
+  for (let i = 0; i < TOTAL; i++) {
+    const d = document.createElement('span');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.dataset.i = i;
+    d.addEventListener('click', () => goTo(i));
+    nav.appendChild(d);
+  }
+  const counter = document.createElement('span');
+  counter.className = 'counter';
+  counter.textContent = '1 / ' + TOTAL;
+  nav.appendChild(counter);
+
+  const slides = document.querySelectorAll('.slide');
+  const dots = document.querySelectorAll('.dot');
+
+  function goTo(n) {
+    if (n < 0 || n >= TOTAL || n === current) return;
+    const forward = n > current;
+    const prev = current;
+
+    // Remove active from outgoing slide, add exit class
+    slides[prev].classList.remove('active');
+    slides[prev].classList.add(forward ? 'exit-left' : 'exit-right');
+
+    // Position incoming slide on the correct side (instantly, no transition)
+    slides[n].classList.add(forward ? 'enter-right' : 'enter-left');
+
+    // Force reflow so the enter class takes effect before we transition
+    void slides[n].offsetWidth;
+
+    // Remove enter class and add active — triggers the CSS transition to center
+    slides[n].classList.remove('enter-right', 'enter-left');
+    slides[n].classList.add('active');
+
+    current = n;
+
+    // Clean up exit classes after transition completes
+    setTimeout(() => {
+      slides[prev].classList.remove('exit-left', 'exit-right');
+    }, 550);
+
+    dots.forEach((d, i) => d.classList.toggle('active', i === current));
+    counter.textContent = (current + 1) + ' / ' + TOTAL;
+    // If arriving at happy path slide, reset animation
+    if (current === 4) resetHP();
+  }
+
+  /* ── Keyboard nav ── */
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); goTo(current + 1); }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); goTo(current - 1); }
+  });
+
+  /* ── Happy Path stepper ── */
+  const hpSteps = document.querySelectorAll('.hp-step');
+  let hpIdx = -1;
+  let hpTimer = null;
+
+  function showHP(n) {
+    hpIdx = Math.max(-1, Math.min(n, hpSteps.length - 1));
+    hpSteps.forEach((s, i) => {
+      s.classList.toggle('visible', i <= hpIdx);
+      s.classList.toggle('current', i === hpIdx);
+      const num = s.querySelector('.num');
+      if (num) num.classList.toggle('done', i < hpIdx);
+    });
+    updateHPCounter();
+  }
+
+  function resetHP() {
+    stopAutoPlay();
+    hpIdx = -1;
+    hpSteps.forEach(s => { s.classList.remove('visible', 'current'); s.querySelector('.num').classList.remove('done'); });
+    updateHPCounter();
+  }
+
+  function updateHPCounter() {
+    const c = document.getElementById('hp-counter');
+    if (hpIdx < 0) c.textContent = 'Ready';
+    else c.textContent = 'Step ' + (hpIdx + 1) + ' / ' + hpSteps.length;
+  }
+
+  function stopAutoPlay() {
+    if (hpTimer) { clearInterval(hpTimer); hpTimer = null; }
+    document.getElementById('hp-play').classList.remove('active');
+    document.getElementById('hp-play').innerHTML = '&#9654; Play';
+  }
+
+  document.getElementById('hp-next').addEventListener('click', () => { stopAutoPlay(); showHP(hpIdx + 1); });
+  document.getElementById('hp-prev').addEventListener('click', () => { stopAutoPlay(); showHP(hpIdx - 1); });
+  document.getElementById('hp-reset').addEventListener('click', resetHP);
+  document.getElementById('hp-play').addEventListener('click', function() {
+    if (hpTimer) { stopAutoPlay(); return; }
+    this.classList.add('active');
+    this.innerHTML = '&#9724; Pause';
+    if (hpIdx >= hpSteps.length - 1) resetHP();
+    showHP(hpIdx + 1);
+    hpTimer = setInterval(() => {
+      if (hpIdx >= hpSteps.length - 1) { stopAutoPlay(); return; }
+      showHP(hpIdx + 1);
+    }, 1800);
+  });
+
+  /* ── State Machine highlight on slide 4 ── */
+  const happyStates = ['SUBMITTED','UNDER_REVIEW','CUSTOMER_CONFIRMATION_REQUIRED','PROVISIONING','COMPLETED'];
+  let smTimer = null;
+
+  function animateSM() {
+    if (smTimer) clearInterval(smTimer);
+    let si = 0;
+    document.querySelectorAll('.sm-node').forEach(n => n.classList.remove('highlight'));
+    smTimer = setInterval(() => {
+      document.querySelectorAll('.sm-node').forEach(n => n.classList.remove('highlight'));
+      if (si >= happyStates.length) { clearInterval(smTimer); smTimer = null; return; }
+      const node = document.querySelector('.sm-node[data-state="' + happyStates[si] + '"]');
+      if (node) node.classList.add('highlight');
+      si++;
+    }, 1200);
+  }
+
+  // Observe when slide 4 becomes active
+  const observer = new MutationObserver(() => {
+    if (slides[3].classList.contains('active')) animateSM();
+    else { if (smTimer) { clearInterval(smTimer); smTimer = null; } document.querySelectorAll('.sm-node').forEach(n => n.classList.remove('highlight')); }
+  });
+  slides[3] && observer.observe(slides[3], { attributes: true, attributeFilter: ['class'] });
+
+})();
+</script>
+</body>
+</html>

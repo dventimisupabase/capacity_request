@@ -56,26 +56,13 @@
   }
   .nav .dot.active{background:var(--accent);transform:scale(1.35)}
   .nav .counter{font-size:.8rem;color:var(--muted);margin-left:.6rem;min-width:3.5ch;text-align:right}
-  /* ── Architecture diagram ── */
-  .arch-stack{display:flex;align-items:center;gap:0;margin:1.5rem 0;flex-wrap:wrap;justify-content:center}
-  .arch-box{
-    background:var(--bg-card);border:1.5px solid var(--accent);border-radius:10px;
-    padding:.7rem 1.1rem;font-size:.92rem;font-weight:600;text-align:center;position:relative;
-  }
-  .arch-arrow{color:var(--accent);font-size:1.3rem;margin:0 .25rem;flex-shrink:0}
-  .ext-labels{display:flex;gap:1rem;margin-top:1rem;flex-wrap:wrap;justify-content:center}
-  .ext-label{font-size:.8rem;color:var(--muted);background:#ffffff08;padding:.3rem .7rem;border-radius:6px}
-  .callout{
-    margin-top:1.4rem;padding:.8rem 1.2rem;border-left:3px solid var(--accent);
-    background:#3ecf8e0a;border-radius:0 8px 8px 0;font-size:.95rem;max-width:700px;
-  }
   /* ── State Machine SVG ── */
   .state-machine-wrap{width:100%;max-width:1050px;margin:0 auto;overflow:visible}
   .state-machine-wrap svg{width:100%;height:auto}
-  .sm-node rect{rx:10;ry:10;stroke-width:2;transition:fill .4s,stroke .4s}
-  .sm-node text{fill:var(--text);font-size:11px;font-weight:600;text-anchor:middle;dominant-baseline:central;font-family:inherit}
+  .sm-node rect{rx:12;ry:12;stroke-width:2;transition:fill .4s,stroke .4s}
+  .sm-node text{fill:var(--text);font-size:12px;font-weight:600;text-anchor:middle;dominant-baseline:central;font-family:inherit}
   .sm-edge line,.sm-edge path{stroke:var(--muted);stroke-width:1.5;fill:none;marker-end:url(#arrow)}
-  .sm-edge text{fill:var(--muted);font-size:8.5px;font-family:inherit}
+  .sm-edge text{fill:var(--muted);font-size:9px;font-family:inherit}
   .sm-node.highlight rect{stroke:white;stroke-width:3;filter:drop-shadow(0 0 10px var(--accent))}
   /* ── Happy path animation ── */
   .hp-steps{display:flex;flex-direction:column;gap:.7rem;width:100%;max-width:900px;margin-top:.8rem}
@@ -106,26 +93,12 @@
   .ucard{flex:1;min-width:0}
   .ucard .path-arrow{display:flex;align-items:center;gap:.5rem;margin:.6rem 0;font-size:.85rem;color:var(--muted)}
   .ucard .path-arrow .st{padding:.2em .5em;border-radius:5px;font-weight:600;font-size:.8rem}
-  .ucard .path-arrow .ev{color:var(--purple);font-style:italic;font-size:.78rem}
-  /* ── Data flow ── */
-  .flow-steps{display:flex;flex-direction:column;gap:0;width:100%;max-width:750px;margin-top:.6rem}
-  .flow-step{display:flex;align-items:flex-start;gap:1rem;position:relative;padding:.55rem 0}
-  .flow-step:not(:last-child)::after{
-    content:'';position:absolute;left:15px;top:2.2rem;width:2px;height:calc(100% - 1rem);background:var(--purple);opacity:.35;
-  }
-  .flow-num{
-    width:1.8rem;height:1.8rem;border-radius:50%;display:flex;align-items:center;justify-content:center;
-    font-size:.75rem;font-weight:700;background:var(--purple);color:white;flex-shrink:0;position:relative;z-index:1;
-  }
-  .flow-text{font-size:.85rem;line-height:1.45;flex:1}
-  .flow-text strong{color:var(--accent)}
-  .flow-text code{background:#ffffff0d;padding:.1em .35em;border-radius:4px;font-size:.8rem;color:var(--purple)}
-  /* ── Security & Reliability two-col ── */
-  .two-col{display:flex;gap:2rem;width:100%;max-width:1050px;margin-top:1rem}
+  /* ── Value / Guardrails two-col ── */
+  .two-col{display:flex;gap:2rem;width:100%;max-width:1100px;margin-top:1rem}
   .two-col .col{flex:1;min-width:0}
   .two-col .col h3{font-size:1.1rem;margin-bottom:.7rem}
-  .sec-item{margin-bottom:.7rem;padding:.55rem .8rem;border-radius:8px;background:var(--bg-card);font-size:.85rem;line-height:1.45}
-  .sec-item strong{color:var(--text)}
+  .val-item{margin-bottom:.85rem;padding:.65rem .9rem;border-radius:8px;background:var(--bg-card);font-size:.9rem;line-height:1.5}
+  .val-item strong{color:var(--text)}
   /* ── Rollout timeline ── */
   .timeline{display:flex;gap:1.5rem;width:100%;max-width:1100px;margin-top:1.2rem;position:relative}
   .timeline::before{
@@ -137,13 +110,17 @@
     width:1.1rem;height:1.1rem;border-radius:50%;position:absolute;top:.45rem;left:1rem;z-index:1;
   }
   .phase ul{list-style:none;padding:0}
-  .phase li{font-size:.82rem;color:var(--muted);padding:.2rem 0;padding-left:1rem;position:relative}
-  .phase li::before{content:'→';position:absolute;left:0;color:var(--accent)}
+  .phase li{font-size:.85rem;color:var(--muted);padding:.25rem 0;padding-left:1.1rem;position:relative}
+  .phase li::before{content:'';position:absolute;left:0;top:.55rem;width:6px;height:6px;border-radius:50%;background:var(--accent)}
+  /* ── Callout ── */
+  .callout{
+    margin-top:1.4rem;padding:.8rem 1.2rem;border-left:3px solid var(--accent);
+    background:#3ecf8e0a;border-radius:0 8px 8px 0;font-size:.95rem;max-width:700px;
+  }
   /* ── Responsive ── */
   @media(max-width:900px){
     .slide{padding:2rem 1.5rem}
     .cards-row,.unhappy-cards,.two-col,.timeline{flex-direction:column}
-    .arch-stack{gap:.3rem}
   }
   @media(max-width:600px){
     .slide{padding:1.5rem 1rem}
@@ -158,18 +135,10 @@
 <!-- ════════════ SLIDE 1 — Title ════════════ -->
 <div class="slide active" data-slide="0">
   <h1 style="text-align:center">Capacity Request<br><span class="accent">Workflow</span></h1>
-  <p style="text-align:center;margin-top:1rem;font-size:clamp(.95rem,1.4vw,1.2rem)">
-    Control-plane anchored · Supabase-native · No Edge Functions
+  <p style="text-align:center;margin-top:1.2rem;font-size:clamp(.95rem,1.4vw,1.2rem)">
+    A structured, automated system for managing capacity requests<br>from submission through provisioning
   </p>
-  <div style="margin-top:2.5rem;display:flex;gap:1rem;flex-wrap:wrap;justify-content:center">
-    <span class="tag tag-green">PostgreSQL</span>
-    <span class="tag tag-green">PostgREST</span>
-    <span class="tag tag-purple">pg_net</span>
-    <span class="tag tag-purple">pg_cron</span>
-    <span class="tag tag-purple">Vault</span>
-    <span class="tag tag-purple">pgcrypto</span>
-  </div>
-  <p style="margin-top:3rem;font-size:.85rem;color:var(--muted)">Press <kbd style="background:#ffffff12;padding:.15em .45em;border-radius:4px">→</kbd> or <kbd style="background:#ffffff12;padding:.15em .45em;border-radius:4px">Space</kbd> to navigate</p>
+  <p style="margin-top:3rem;font-size:.85rem;color:var(--muted)">Press <kbd style="background:#ffffff12;padding:.15em .45em;border-radius:4px">&rarr;</kbd> or <kbd style="background:#ffffff12;padding:.15em .45em;border-radius:4px">Space</kbd> to navigate</p>
 </div>
 
 <!-- ════════════ SLIDE 2 — The Problem ════════════ -->
@@ -195,148 +164,133 @@
   </div>
 </div>
 
-<!-- ════════════ SLIDE 3 — Solution Architecture ════════════ -->
+<!-- ════════════ SLIDE 3 — What We're Building ════════════ -->
 <div class="slide" data-slide="2">
-  <h2>The <span class="accent">Solution</span></h2>
-  <p>A Postgres-native architecture &mdash; everything lives in the database</p>
-  <div class="arch-stack">
-    <div class="arch-box" style="border-color:var(--amber)">Slack</div>
-    <span class="arch-arrow">&#8596;</span>
-    <div class="arch-box" style="border-color:var(--muted)">CF Worker<br><span style="font-size:.7rem;color:var(--muted)">~15 lines</span></div>
-    <span class="arch-arrow">&#8596;</span>
-    <div class="arch-box">PostgREST</div>
-    <span class="arch-arrow">&#8596;</span>
-    <div class="arch-box" style="border-color:var(--purple)">PL/pgSQL<br><span style="font-size:.7rem;color:var(--muted)">Reducer</span></div>
-    <span class="arch-arrow">&#8594;</span>
-    <div class="arch-box" style="border-color:var(--purple)">pg_net</div>
-    <span class="arch-arrow">&#8594;</span>
-    <div class="arch-box" style="border-color:var(--amber)">Slack / Linear</div>
-  </div>
-  <div class="ext-labels">
-    <span class="ext-label">&#128274; Vault &mdash; secrets</span>
-    <span class="ext-label">&#128272; pgcrypto &mdash; HMAC</span>
-    <span class="ext-label">&#128336; pg_cron &mdash; timers</span>
-    <span class="ext-label">&#127760; pg_net &mdash; HTTP</span>
+  <h2>What We&rsquo;re <span class="accent">Building</span></h2>
+  <p style="margin-bottom:1.2rem">A workflow engine that turns ad-hoc Slack conversations into a governed process</p>
+  <div class="cards-row">
+    <div class="card">
+      <span class="card-icon">&#128203;</span>
+      <h3>Single Source of Truth</h3>
+      <p style="font-size:.88rem">Every request has one canonical state. Anyone can check status at any time. Every decision is recorded with who made it and when.</p>
+    </div>
+    <div class="card">
+      <span class="card-icon">&#9989;</span>
+      <h3>Dual-Track Review</h3>
+      <p style="font-size:.88rem">Commercial and technical reviewers approve in parallel &mdash; both must sign off before a request moves to the customer. Either can reject immediately.</p>
+    </div>
+    <div class="card">
+      <span class="card-icon">&#9889;</span>
+      <h3>Automated Enforcement</h3>
+      <p style="font-size:.88rem">Deadlines are enforced automatically. If a customer doesn&rsquo;t respond within 7 days, the request expires. No more manual follow-ups or forgotten requests.</p>
+    </div>
   </div>
   <div class="callout">
-    <strong class="accent">Key insight:</strong> Everything lives in Postgres. The only external component is a ~15-line Cloudflare Worker that rewrites Slack&rsquo;s <code style="background:#ffffff0d;padding:.1em .3em;border-radius:3px;font-size:.85rem">application/x-www-form-urlencoded</code> to <code style="background:#ffffff0d;padding:.1em .3em;border-radius:3px;font-size:.85rem">text/plain</code> for PostgREST.
+    <strong class="accent">Design principle:</strong> The entire workflow runs inside the existing Supabase stack. Teams interact through Slack &mdash; no new tools to learn.
   </div>
 </div>
 
-<!-- ════════════ SLIDE 4 — State Machine ════════════ -->
+<!-- ════════════ SLIDE 4 — Workflow ════════════ -->
 <div class="slide" data-slide="3">
-  <h2>State <span class="accent">Machine</span></h2>
+  <h2>The <span class="accent">Workflow</span></h2>
   <div class="state-machine-wrap">
-    <svg viewBox="0 0 1000 520" xmlns="http://www.w3.org/2000/svg">
+    <svg viewBox="0 0 960 480" xmlns="http://www.w3.org/2000/svg">
       <defs>
         <marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
           <path d="M0,0 L8,3 L0,6" fill="var(--muted)"/>
         </marker>
-        <marker id="arrow-g" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
-          <path d="M0,0 L8,3 L0,6" fill="var(--accent)"/>
-        </marker>
       </defs>
 
-      <!-- Nodes -->
+      <!-- Active-path nodes -->
       <g class="sm-node" data-state="SUBMITTED">
-        <rect x="20" y="210" width="130" height="48" fill="#16213e" stroke="var(--accent)"/>
-        <text x="85" y="234">SUBMITTED</text>
+        <rect x="20" y="195" width="120" height="50" fill="#16213e" stroke="var(--accent)"/>
+        <text x="80" y="220">Submitted</text>
       </g>
       <g class="sm-node" data-state="UNDER_REVIEW">
-        <rect x="220" y="210" width="165" height="48" fill="#16213e" stroke="var(--accent)"/>
-        <text x="302" y="228">UNDER_REVIEW</text>
-        <text x="302" y="244" style="font-size:8px;fill:var(--muted);font-weight:400">&#9872; commercial &amp; &#9881; technical</text>
+        <rect x="210" y="195" width="140" height="50" fill="#16213e" stroke="var(--accent)"/>
+        <text x="280" y="214">Under Review</text>
+        <text x="280" y="232" style="font-size:9px;fill:var(--muted);font-weight:400">commercial + technical</text>
       </g>
       <g class="sm-node" data-state="CUSTOMER_CONFIRMATION_REQUIRED">
-        <rect x="460" y="210" width="155" height="48" fill="#16213e" stroke="var(--accent)"/>
-        <text x="537" y="228" style="font-size:9.5px">CUSTOMER_CONFIRM</text>
-        <text x="537" y="244" style="font-size:9.5px">_REQUIRED</text>
+        <rect x="420" y="195" width="140" height="50" fill="#16213e" stroke="var(--accent)"/>
+        <text x="490" y="214">Awaiting</text>
+        <text x="490" y="232">Customer</text>
       </g>
       <g class="sm-node" data-state="PROVISIONING">
-        <rect x="690" y="210" width="130" height="48" fill="#16213e" stroke="var(--accent)"/>
-        <text x="755" y="234">PROVISIONING</text>
+        <rect x="630" y="195" width="130" height="50" fill="#16213e" stroke="var(--accent)"/>
+        <text x="695" y="220">Provisioning</text>
       </g>
       <g class="sm-node" data-state="COMPLETED">
-        <rect x="890" y="210" width="100" height="48" fill="#16213e" stroke="var(--accent)"/>
-        <text x="940" y="234">COMPLETED</text>
-      </g>
-      <!-- Terminal: REJECTED -->
-      <g class="sm-node" data-state="REJECTED">
-        <rect x="260" y="410" width="110" height="44" fill="#16213e" stroke="var(--rose)"/>
-        <text x="315" y="432" style="fill:var(--rose)">REJECTED</text>
-      </g>
-      <!-- Terminal: EXPIRED -->
-      <g class="sm-node" data-state="EXPIRED">
-        <rect x="490" y="410" width="100" height="44" fill="#16213e" stroke="var(--amber)"/>
-        <text x="540" y="432" style="fill:var(--amber)">EXPIRED</text>
-      </g>
-      <!-- Terminal: CANCELLED -->
-      <g class="sm-node" data-state="CANCELLED">
-        <rect x="490" y="60" width="110" height="44" fill="#16213e" stroke="var(--rose)"/>
-        <text x="545" y="82" style="fill:var(--rose)">CANCELLED</text>
-      </g>
-      <!-- Terminal: FAILED -->
-      <g class="sm-node" data-state="FAILED">
-        <rect x="720" y="410" width="100" height="44" fill="#16213e" stroke="var(--rose)"/>
-        <text x="770" y="432" style="fill:var(--rose)">FAILED</text>
+        <rect x="830" y="195" width="110" height="50" fill="#16213e" stroke="var(--accent)"/>
+        <text x="885" y="220">Completed</text>
       </g>
 
-      <!-- ── Edges ── -->
-      <!-- SUBMITTED → UNDER_REVIEW -->
-      <g class="sm-edge">
-        <line x1="150" y1="234" x2="218" y2="234"/>
-        <text x="170" y="226" style="font-size:7.5px">REQUEST_SUBMITTED</text>
+      <!-- Terminal nodes -->
+      <g class="sm-node" data-state="REJECTED">
+        <rect x="240" y="380" width="110" height="46" fill="#16213e" stroke="var(--rose)"/>
+        <text x="295" y="403" style="fill:var(--rose)">Rejected</text>
       </g>
-      <!-- UNDER_REVIEW → CUSTOMER_CONFIRMATION_REQUIRED (both approved) -->
-      <g class="sm-edge">
-        <line x1="385" y1="234" x2="458" y2="234"/>
-        <text x="396" y="226" style="font-size:7.5px">Both approved</text>
+      <g class="sm-node" data-state="EXPIRED">
+        <rect x="450" y="380" width="100" height="46" fill="#16213e" stroke="var(--amber)"/>
+        <text x="500" y="403" style="fill:var(--amber)">Expired</text>
       </g>
-      <!-- CUSTOMER_CONFIRMATION_REQUIRED → PROVISIONING -->
-      <g class="sm-edge">
-        <line x1="615" y1="234" x2="688" y2="234"/>
-        <text x="627" y="226" style="font-size:7.5px">CUSTOMER_CONFIRMED</text>
+      <g class="sm-node" data-state="CANCELLED">
+        <rect x="440" y="55" width="110" height="46" fill="#16213e" stroke="var(--rose)"/>
+        <text x="495" y="78" style="fill:var(--rose)">Cancelled</text>
       </g>
-      <!-- PROVISIONING → COMPLETED -->
-      <g class="sm-edge">
-        <line x1="820" y1="234" x2="888" y2="234"/>
-        <text x="830" y="226" style="font-size:7px">PROVISIONING_COMPLETE</text>
+      <g class="sm-node" data-state="FAILED">
+        <rect x="660" y="380" width="100" height="46" fill="#16213e" stroke="var(--rose)"/>
+        <text x="710" y="403" style="fill:var(--rose)">Failed</text>
       </g>
-      <!-- UNDER_REVIEW → REJECTED -->
+
+      <!-- ── Happy-path edges ── -->
       <g class="sm-edge">
-        <path d="M302,258 L302,370 L315,408"/>
-        <text x="235" y="340" style="font-size:7px">COMMERCIAL_REJECTED</text>
-        <text x="235" y="350" style="font-size:7px">TECH_REVIEW_REJECTED</text>
+        <line x1="140" y1="220" x2="208" y2="220"/>
       </g>
-      <!-- CUSTOMER_CONFIRMATION_REQUIRED → EXPIRED -->
       <g class="sm-edge">
-        <line x1="537" y1="258" x2="540" y2="408"/>
-        <text x="548" y="340" style="font-size:7px">TIMEOUT (pg_cron)</text>
+        <line x1="350" y1="220" x2="418" y2="220"/>
+        <text x="356" y="212">both approve</text>
       </g>
-      <!-- CUSTOMER_CONFIRMATION_REQUIRED → CANCELLED (declined) -->
       <g class="sm-edge">
-        <path d="M537,210 L537,150 L545,106"/>
-        <text x="546" y="168" style="font-size:7px">CUSTOMER_DECLINED</text>
+        <line x1="560" y1="220" x2="628" y2="220"/>
+        <text x="566" y="212">confirmed</text>
       </g>
-      <!-- PROVISIONING → FAILED -->
       <g class="sm-edge">
-        <line x1="755" y1="258" x2="770" y2="408"/>
-        <text x="766" y="340" style="font-size:7px">PROVISIONING_FAILED</text>
+        <line x1="760" y1="220" x2="828" y2="220"/>
+        <text x="766" y="212">done</text>
       </g>
-      <!-- CANCEL_APPROVED (dashed, from various) -->
-      <g class="sm-edge" style="opacity:.55">
-        <line x1="85" y1="210" x2="488" y2="104" stroke-dasharray="5,3" style="stroke:var(--rose)"/>
-        <text x="200" y="136" style="font-size:7px;fill:var(--rose)">CANCEL_APPROVED (from any non-terminal)</text>
+
+      <!-- Unhappy-path edges -->
+      <g class="sm-edge">
+        <path d="M280,245 L280,330 L295,378"/>
+        <text x="215" y="320">rejected</text>
+      </g>
+      <g class="sm-edge">
+        <line x1="490" y1="245" x2="500" y2="378"/>
+        <text x="505" y="320">timeout (7d)</text>
+      </g>
+      <g class="sm-edge">
+        <path d="M490,195 L490,140 L495,103"/>
+        <text x="500" y="155">declined</text>
+      </g>
+      <g class="sm-edge">
+        <line x1="695" y1="245" x2="710" y2="378"/>
+        <text x="715" y="320">failed</text>
+      </g>
+      <!-- Cancel (dashed) -->
+      <g class="sm-edge" style="opacity:.5">
+        <line x1="80" y1="195" x2="438" y2="100" stroke-dasharray="5,3" style="stroke:var(--rose)"/>
+        <text x="180" y="128" style="fill:var(--rose);font-size:8.5px">cancel (from any active state)</text>
       </g>
 
       <!-- Legend -->
-      <g transform="translate(20,470)">
+      <g transform="translate(20,440)">
         <rect x="0" y="0" width="12" height="12" rx="3" fill="none" stroke="var(--accent)" stroke-width="2"/>
-        <text x="18" y="10" style="font-size:9px;fill:var(--muted);font-family:inherit">Active state</text>
-        <rect x="120" y="0" width="12" height="12" rx="3" fill="none" stroke="var(--rose)" stroke-width="2"/>
-        <text x="138" y="10" style="font-size:9px;fill:var(--muted);font-family:inherit">Terminal (error/cancel)</text>
-        <rect x="290" y="0" width="12" height="12" rx="3" fill="none" stroke="var(--amber)" stroke-width="2"/>
-        <text x="308" y="10" style="font-size:9px;fill:var(--muted);font-family:inherit">Terminal (timeout)</text>
+        <text x="18" y="10" style="font-size:10px;fill:var(--muted);font-family:inherit">Active state</text>
+        <rect x="130" y="0" width="12" height="12" rx="3" fill="none" stroke="var(--rose)" stroke-width="2"/>
+        <text x="148" y="10" style="font-size:10px;fill:var(--muted);font-family:inherit">Terminal (error / cancel)</text>
+        <rect x="320" y="0" width="12" height="12" rx="3" fill="none" stroke="var(--amber)" stroke-width="2"/>
+        <text x="338" y="10" style="font-size:10px;fill:var(--muted);font-family:inherit">Terminal (timeout)</text>
       </g>
     </svg>
   </div>
@@ -348,28 +302,28 @@
   <div class="hp-steps" id="hp-steps">
     <div class="hp-step" data-hp="0">
       <div class="num">1</div>
-      <div class="lbl">SA submits via <code>/capacity</code> slash command</div>
-      <span class="state-tag">SUBMITTED → UNDER_REVIEW</span>
+      <div class="lbl">SA submits a capacity request from Slack</div>
+      <span class="state-tag">Submitted &rarr; Under Review</span>
     </div>
     <div class="hp-step" data-hp="1">
       <div class="num">2</div>
-      <div class="lbl">Commercial owner clicks <strong class="accent">Approve</strong> &mdash; flag 1 set</div>
-      <span class="state-tag" style="background:#6c63ff22;color:var(--purple)">UNDER_REVIEW (1/2)</span>
+      <div class="lbl">Commercial owner approves (first of two sign-offs)</div>
+      <span class="state-tag" style="background:#6c63ff22;color:var(--purple)">Under Review (1/2)</span>
     </div>
     <div class="hp-step" data-hp="2">
       <div class="num">3</div>
-      <div class="lbl">Technical reviewer clicks <strong class="accent">Approve</strong> &mdash; flag 2 set</div>
-      <span class="state-tag">→ CUSTOMER_CONFIRM</span>
+      <div class="lbl">Technical reviewer approves (second sign-off) &mdash; both gates passed</div>
+      <span class="state-tag">&rarr; Awaiting Customer</span>
     </div>
     <div class="hp-step" data-hp="3">
       <div class="num">4</div>
-      <div class="lbl">Customer confirms within 7-day window</div>
-      <span class="state-tag">→ PROVISIONING</span>
+      <div class="lbl">Customer confirms they still need the capacity (7-day window)</div>
+      <span class="state-tag">&rarr; Provisioning</span>
     </div>
     <div class="hp-step" data-hp="4">
       <div class="num">5</div>
-      <div class="lbl">Provisioning completes &amp; verified</div>
-      <span class="state-tag">→ COMPLETED</span>
+      <div class="lbl">Infrastructure is provisioned and verified</div>
+      <span class="state-tag">&rarr; Completed</span>
     </div>
   </div>
   <div class="hp-controls">
@@ -383,144 +337,124 @@
 
 <!-- ════════════ SLIDE 6 — Unhappy Paths ════════════ -->
 <div class="slide" data-slide="5">
-  <h2>The <span class="rose">Unhappy Paths</span></h2>
-  <p style="margin-bottom:.5rem">Three scenarios the system handles automatically</p>
+  <h2>Built-in <span class="rose">Safeguards</span></h2>
+  <p style="margin-bottom:.5rem">The system handles edge cases automatically &mdash; no manual chasing required</p>
   <div class="unhappy-cards">
     <div class="card ucard">
-      <h3 style="color:var(--amber)">&#9200; Customer Goes Dark</h3>
-      <p style="font-size:.85rem;color:var(--muted);margin-bottom:.5rem"><code>pg_cron</code> sweeps every 5 minutes for expired deadlines</p>
+      <span class="card-icon">&#9200;</span>
+      <h3 style="color:var(--amber)">Customer Goes Dark</h3>
+      <p style="font-size:.88rem;color:var(--muted);margin-bottom:.5rem">If the customer doesn&rsquo;t respond within the confirmation window, the request automatically expires.</p>
       <div class="path-arrow">
-        <span class="st tag-green">CUSTOMER_CONFIRM</span>
-        <span class="ev">TIMEOUT</span>
-        <span>→</span>
-        <span class="st tag-amber">EXPIRED</span>
+        <span class="st tag-green">Awaiting Customer</span>
+        <span>&rarr;</span>
+        <span class="st tag-amber">Expired</span>
       </div>
-      <p style="font-size:.82rem;color:var(--muted)">7-day TTL (configurable). Slack thread notified automatically.</p>
+      <p style="font-size:.85rem;color:var(--muted)">Default: 7 days. Configurable per request. Team is notified in Slack.</p>
     </div>
     <div class="card ucard">
-      <h3 style="color:var(--rose)">&#10060; Review Rejected</h3>
-      <p style="font-size:.85rem;color:var(--muted);margin-bottom:.5rem">Either reviewer can reject with a reason</p>
+      <span class="card-icon">&#10060;</span>
+      <h3 style="color:var(--rose)">Review Rejected</h3>
+      <p style="font-size:.88rem;color:var(--muted);margin-bottom:.5rem">Either the commercial or technical reviewer can reject a request with a stated reason.</p>
       <div class="path-arrow">
-        <span class="st tag-green">UNDER_REVIEW</span>
-        <span class="ev">REJECTED</span>
-        <span>→</span>
-        <span class="st tag-rose">REJECTED</span>
+        <span class="st tag-green">Under Review</span>
+        <span>&rarr;</span>
+        <span class="st tag-rose">Rejected</span>
       </div>
-      <p style="font-size:.82rem;color:var(--muted)">Immediate terminal state. Rejection reason stored in event payload.</p>
+      <p style="font-size:.85rem;color:var(--muted)">Immediate. Reason and reviewer identity are recorded.</p>
     </div>
     <div class="card ucard">
-      <h3 style="color:var(--rose)">&#128683; Cancel Mid-Flight</h3>
-      <p style="font-size:.85rem;color:var(--muted);margin-bottom:.5rem">Authorized actor can cancel from any non-terminal state</p>
+      <span class="card-icon">&#128683;</span>
+      <h3 style="color:var(--rose)">Cancelled Mid-Flight</h3>
+      <p style="font-size:.88rem;color:var(--muted);margin-bottom:.5rem">An authorized person can cancel any active request at any stage.</p>
       <div class="path-arrow">
-        <span class="st tag-purple">Any active</span>
-        <span class="ev">CANCEL_APPROVED</span>
-        <span>→</span>
-        <span class="st tag-rose">CANCELLED</span>
+        <span class="st tag-purple">Any active state</span>
+        <span>&rarr;</span>
+        <span class="st tag-rose">Cancelled</span>
       </div>
-      <p style="font-size:.82rem;color:var(--muted)">Requires authorization. Reason &amp; authorizer recorded.</p>
+      <p style="font-size:.85rem;color:var(--muted)">Requires authorization. Reason and authorizer are recorded.</p>
     </div>
   </div>
 </div>
 
-<!-- ════════════ SLIDE 7 — Data Flow ════════════ -->
+<!-- ════════════ SLIDE 7 — Why This Matters ════════════ -->
 <div class="slide" data-slide="6">
-  <h2>Data <span class="purple">Flow Detail</span></h2>
-  <p style="margin-bottom:.3rem">How a Slack button click becomes a state transition</p>
-  <div class="flow-steps">
-    <div class="flow-step">
-      <div class="flow-num">1</div>
-      <div class="flow-text">User clicks <strong>"Approve"</strong> button in Slack message</div>
-    </div>
-    <div class="flow-step">
-      <div class="flow-num">2</div>
-      <div class="flow-text">Slack POSTs <code>application/x-www-form-urlencoded</code> to <strong>Cloudflare Worker</strong></div>
-    </div>
-    <div class="flow-step">
-      <div class="flow-num">3</div>
-      <div class="flow-text">Worker rewrites <code>Content-Type</code> → forwards raw body to <strong>PostgREST</strong></div>
-    </div>
-    <div class="flow-step">
-      <div class="flow-num">4</div>
-      <div class="flow-text">PostgREST calls <code>handle_slack_webhook(text)</code> via single unnamed parameter</div>
-    </div>
-    <div class="flow-step">
-      <div class="flow-num">5</div>
-      <div class="flow-text">PL/pgSQL <strong>verifies Slack HMAC signature</strong> (two-layer: pre-request hook + <code>pgcrypto</code>)</div>
-    </div>
-    <div class="flow-step">
-      <div class="flow-num">6</div>
-      <div class="flow-text"><strong>Reducer:</strong> lock row <code>FOR UPDATE</code> → <code>compute_next_state()</code> → insert event → update projection</div>
-    </div>
-    <div class="flow-step">
-      <div class="flow-num">7</div>
-      <div class="flow-text"><code>pg_net</code> enqueues Slack notification <strong>(delivered only after commit)</strong></div>
-    </div>
-  </div>
-</div>
-
-<!-- ════════════ SLIDE 8 — Security & Reliability ════════════ -->
-<div class="slide" data-slide="7">
-  <h2>Security &amp; <span class="purple">Reliability</span></h2>
+  <h2>Why This <span class="accent">Matters</span></h2>
   <div class="two-col">
     <div class="col">
-      <h3 style="color:var(--accent)">&#128274; Security</h3>
-      <div class="sec-item">
-        <strong>Two-layer Slack verification</strong><br>
-        <span style="color:var(--muted)">Layer 1: Pre-request hook checks headers &amp; timestamp (fast reject). Layer 2: Full HMAC-SHA256 via <code style="font-size:.8rem">pgcrypto</code>.</span>
+      <h3>For the Business</h3>
+      <div class="val-item">
+        <strong>Stop burning money on forgotten capacity</strong><br>
+        <span style="color:var(--muted)">Automatic expiration means no more provisioned infrastructure sitting idle because a customer never responded.</span>
       </div>
-      <div class="sec-item">
-        <strong>Vault secrets</strong><br>
-        <span style="color:var(--muted)">All credentials encrypted at rest. Retrieved via <code style="font-size:.8rem">SECURITY DEFINER</code> helper. Never in SQL logs.</span>
+      <div class="val-item">
+        <strong>Clear accountability for every decision</strong><br>
+        <span style="color:var(--muted)">Every approval, rejection, and cancellation is attributed to a named person with a timestamp. No more "who approved this?"</span>
       </div>
-      <div class="sec-item">
-        <strong>RLS policies</strong><br>
-        <span style="color:var(--muted)">Projection writable only by reducer (service role). Read access scoped by role.</span>
-      </div>
-      <div class="sec-item">
-        <strong>Actor attribution</strong><br>
-        <span style="color:var(--muted)">Every event records <code style="font-size:.8rem">actor_type</code> + <code style="font-size:.8rem">actor_id</code>. Full audit trail.</span>
+      <div class="val-item">
+        <strong>Faster time to provisioning</strong><br>
+        <span style="color:var(--muted)">Parallel reviews and automated notifications eliminate hand-off delays. Requests don&rsquo;t get stuck waiting in someone&rsquo;s queue.</span>
       </div>
     </div>
     <div class="col">
-      <h3 style="color:var(--purple)">&#128737; Reliability</h3>
-      <div class="sec-item">
-        <strong>Transactional side effects</strong><br>
-        <span style="color:var(--muted)"><code style="font-size:.8rem">pg_net</code> enqueues HTTP calls inside the transaction. If rollback → nothing sent.</span>
+      <h3 style="color:var(--purple)">For the Teams</h3>
+      <div class="val-item">
+        <strong>No new tools &mdash; everything happens in Slack</strong><br>
+        <span style="color:var(--muted)">SAs submit requests, reviewers approve, and customers confirm all through Slack interactions they already know.</span>
       </div>
-      <div class="sec-item">
-        <strong>Phase 2: Outbox pattern</strong><br>
-        <span style="color:var(--muted)">At-least-once delivery. Reducer writes to outbox table; <code style="font-size:.8rem">pg_cron</code> polls &amp; delivers.</span>
+      <div class="val-item">
+        <strong>Full visibility into every request</strong><br>
+        <span style="color:var(--muted)">Anyone can check the current state of any request at any time. No more asking around or digging through threads.</span>
       </div>
-      <div class="sec-item">
-        <strong>pg_cron retry &amp; timers</strong><br>
-        <span style="color:var(--muted)">5-min sweep with <code style="font-size:.8rem">FOR UPDATE SKIP LOCKED</code>. Durable timeouts without external orchestration.</span>
-      </div>
-      <div class="sec-item">
-        <strong>Atomic transitions</strong><br>
-        <span style="color:var(--muted)">Row lock + event insert + projection update + side effect dispatch in one transaction.</span>
+      <div class="val-item">
+        <strong>Complete audit trail</strong><br>
+        <span style="color:var(--muted)">Every state change is logged as an immutable event. Useful for compliance reviews, post-mortems, and trend analysis.</span>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- ════════════ SLIDE 8 — Guardrails ════════════ -->
+<div class="slide" data-slide="7">
+  <h2><span class="purple">Guardrails</span></h2>
+  <p style="margin-bottom:1rem">Trust built into the system by design</p>
+  <div class="cards-row">
+    <div class="card">
+      <span class="card-icon">&#128274;</span>
+      <h3>Verified Identity</h3>
+      <p style="font-size:.88rem">Every action is cryptographically verified as coming from Slack. Every decision records who made it. No one can impersonate another user.</p>
+    </div>
+    <div class="card">
+      <span class="card-icon">&#128737;</span>
+      <h3 style="color:var(--purple)">No Partial States</h3>
+      <p style="font-size:.88rem">State transitions are atomic &mdash; a request either fully moves to the next state or doesn&rsquo;t move at all. Notifications only go out for committed changes.</p>
+    </div>
+    <div class="card">
+      <span class="card-icon">&#128209;</span>
+      <h3 style="color:var(--amber)">Immutable History</h3>
+      <p style="font-size:.88rem">The event log is append-only. Past decisions cannot be altered or deleted. The full history of every request is always available.</p>
+    </div>
+  </div>
+  <div class="callout" style="margin-top:1.5rem">
+    <strong class="accent">Secrets &amp; access:</strong> All credentials are encrypted at rest. Write access to request state is restricted to the workflow engine itself &mdash; no direct edits possible.
   </div>
 </div>
 
 <!-- ════════════ SLIDE 9 — Rollout ════════════ -->
 <div class="slide" data-slide="8">
-  <h2><span class="accent">Rollout</span> Phases</h2>
-  <p style="margin-bottom:.5rem">Incremental delivery — each phase is independently valuable</p>
+  <h2><span class="accent">Rollout</span> Plan</h2>
+  <p style="margin-bottom:.5rem">Incremental delivery &mdash; each phase is independently valuable</p>
   <div class="timeline">
     <div class="phase">
       <div class="phase-dot" style="background:var(--accent)"></div>
       <div class="card" style="border-top:3px solid var(--accent)">
         <h3>Phase 1 &mdash; MVP</h3>
-        <p style="font-size:.82rem;color:var(--muted);margin-bottom:.5rem">Schema, reducer, Slack, timers</p>
+        <p style="font-size:.85rem;color:var(--muted);margin-bottom:.5rem">Core workflow up and running</p>
         <ul>
-          <li>Enable extensions (pg_net, pgcrypto, pg_cron)</li>
-          <li>Provision secrets via Vault</li>
-          <li>Tables, enums, indexes, RLS, grants</li>
-          <li>PL/pgSQL reducer &amp; side effects</li>
-          <li>Cloudflare Worker proxy (~15 LOC)</li>
-          <li>Slack slash command &amp; interactive buttons</li>
-          <li>pg_cron deadline sweep</li>
+          <li>Submit requests from Slack</li>
+          <li>Parallel commercial + technical review</li>
+          <li>Customer confirmation with deadline</li>
+          <li>Automatic expiration of stale requests</li>
+          <li>Slack notifications at every state change</li>
         </ul>
       </div>
     </div>
@@ -528,14 +462,13 @@
       <div class="phase-dot" style="background:var(--purple)"></div>
       <div class="card" style="border-top:3px solid var(--purple)">
         <h3 style="color:var(--purple)">Phase 2 &mdash; Polish</h3>
-        <p style="font-size:.82rem;color:var(--muted);margin-bottom:.5rem">Linear, outbox, escalation, warnings</p>
+        <p style="font-size:.85rem;color:var(--muted);margin-bottom:.5rem">Operational confidence</p>
         <ul>
-          <li>Linear issue creation via pg_net + GraphQL</li>
-          <li>Comment sync for state changes</li>
-          <li>Transactional outbox (at-least-once)</li>
-          <li>Threshold-based escalation (e.g., &gt;$X → VP)</li>
-          <li>Warning notifications ("2 days remaining")</li>
-          <li>Observability dashboard from event log</li>
+          <li>Linear issue tracking integration</li>
+          <li>Guaranteed notification delivery</li>
+          <li>Escalation for high-value requests</li>
+          <li>Warning alerts before deadlines</li>
+          <li>Reporting dashboard</li>
         </ul>
       </div>
     </div>
@@ -543,12 +476,12 @@
       <div class="phase-dot" style="background:var(--amber)"></div>
       <div class="card" style="border-top:3px solid var(--amber)">
         <h3 style="color:var(--amber)">Phase 3 &mdash; Automation</h3>
-        <p style="font-size:.82rem;color:var(--muted);margin-bottom:.5rem">Provisioning integration, web UI, self-service</p>
+        <p style="font-size:.85rem;color:var(--muted);margin-bottom:.5rem">Scale and self-service</p>
         <ul>
-          <li>Automated provisioning status integration</li>
-          <li>Optional web UI for request management</li>
-          <li>Self-service customer-facing form</li>
-          <li>Advanced reporting &amp; analytics</li>
+          <li>Automated provisioning integration</li>
+          <li>Web UI for request management</li>
+          <li>Self-service customer portal</li>
+          <li>Advanced analytics &amp; trends</li>
         </ul>
       </div>
     </div>
@@ -589,30 +522,23 @@
     const forward = n > current;
     const prev = current;
 
-    // Remove active from outgoing slide, add exit class
     slides[prev].classList.remove('active');
     slides[prev].classList.add(forward ? 'exit-left' : 'exit-right');
 
-    // Position incoming slide on the correct side (instantly, no transition)
     slides[n].classList.add(forward ? 'enter-right' : 'enter-left');
-
-    // Force reflow so the enter class takes effect before we transition
     void slides[n].offsetWidth;
 
-    // Remove enter class and add active — triggers the CSS transition to center
     slides[n].classList.remove('enter-right', 'enter-left');
     slides[n].classList.add('active');
 
     current = n;
 
-    // Clean up exit classes after transition completes
     setTimeout(() => {
       slides[prev].classList.remove('exit-left', 'exit-right');
     }, 550);
 
     dots.forEach((d, i) => d.classList.toggle('active', i === current));
     counter.textContent = (current + 1) + ' / ' + TOTAL;
-    // If arriving at happy path slide, reset animation
     if (current === 4) resetHP();
   }
 
@@ -689,7 +615,6 @@
     }, 1200);
   }
 
-  // Observe when slide 4 becomes active
   const observer = new MutationObserver(() => {
     if (slides[3].classList.contains('active')) animateSM();
     else { if (smTimer) { clearInterval(smTimer); smTimer = null; } document.querySelectorAll('.sm-node').forEach(n => n.classList.remove('highlight')); }

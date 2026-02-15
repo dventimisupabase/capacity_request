@@ -1,0 +1,8 @@
+name = "capacity-request-slack-proxy"
+main = "src/index.js"
+compatibility_date = "2026-02-14"
+
+[vars]
+POSTGREST_URL = "https://YOUR_PROJECT.supabase.co/rest/v1/rpc/handle_slack_webhook"
+SUPABASE_ANON_KEY = ""
+SUPABASE_SERVICE_ROLE_KEY = ""

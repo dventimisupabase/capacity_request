@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Supabase local
+.supabase/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Cloudflare Worker
+worker/.wrangler/
+worker/dist/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+*.swp
+*.swo
+*~

@@ -113,8 +113,8 @@
 
     async function loadDetail() {
       const [reqResult, eventsResult] = await Promise.all([
-        sb.from('capacity_requests').select('*').eq('id', requestId).single(),
-        sb.from('capacity_request_events').select('*').eq('capacity_request_id', requestId).order('created_at', { ascending: true })
+        sb.from('v_request_detail').select('*').eq('id', requestId).single(),
+        sb.from('v_request_events').select('*').eq('capacity_request_id', requestId).order('created_at', { ascending: true })
       ]);
 
       if (reqResult.error) {

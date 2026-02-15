@@ -571,6 +571,278 @@ END;
 $$;
 
 -- ============================================================
+-- Test 17: Outbox table schema and enqueue on side effects
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  outbox_row record;
+  outbox_count integer;
+BEGIN
+  -- Direct insert into outbox to verify schema
+  INSERT INTO capacity_request_outbox (capacity_request_id, destination, payload)
+  SELECT cr.id, 'slack', '{"text":"test"}'::jsonb
+  FROM capacity_requests cr LIMIT 1
+  RETURNING * INTO outbox_row;
+
+  ASSERT outbox_row.id IS NOT NULL, 'Outbox row should have UUID id';
+  ASSERT outbox_row.delivered_at IS NULL, 'delivered_at should be NULL';
+  ASSERT outbox_row.attempts = 0, 'attempts should default to 0';
+  ASSERT outbox_row.max_attempts = 5, 'max_attempts should default to 5';
+  ASSERT outbox_row.pg_net_request_id IS NULL, 'pg_net_request_id should be NULL';
+
+  -- Clean up direct insert
+  DELETE FROM capacity_request_outbox WHERE id = outbox_row.id;
+
+  -- Create a request WITH slack_channel_id and apply an event
+  -- dispatch_side_effects should enqueue an outbox row
+  req := create_capacity_request(
+    'U_outbox1', 'U_comm_outbox', 'infra-outbox',
+    '{"org_id": "org_outbox"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-12-01'::date, 30,
+    NULL, 7, 'C_OUTBOX_TEST'
+  );
+
+  -- The create triggers REQUEST_SUBMITTED -> UNDER_REVIEW which dispatches side effects
+  SELECT count(*) INTO outbox_count
+  FROM capacity_request_outbox
+  WHERE capacity_request_id = req.id;
+
+  ASSERT outbox_count > 0,
+    format('Expected outbox rows for request with slack_channel_id, got %s', outbox_count);
+
+  RAISE NOTICE 'PASS: Test 17 - Outbox table schema and enqueue';
+END;
+$$;
+
+-- ============================================================
+-- Test 18: Outbox delivery mechanics (partial index filtering)
+-- ============================================================
+DO $$
+DECLARE
+  req_id text;
+  pending_count integer;
+BEGIN
+  -- Get any existing request ID for FK
+  SELECT id INTO req_id FROM capacity_requests LIMIT 1;
+
+  -- Insert various outbox rows to test filtering
+  -- 1. Pending (should be found by index)
+  INSERT INTO capacity_request_outbox (capacity_request_id, destination, payload, attempts)
+  VALUES (req_id, 'slack', '{"text":"pending"}'::jsonb, 0);
+
+  -- 2. Delivered (should NOT be found by index)
+  INSERT INTO capacity_request_outbox (capacity_request_id, destination, payload, delivered_at, attempts)
+  VALUES (req_id, 'slack', '{"text":"delivered"}'::jsonb, now(), 1);
+
+  -- 3. Max attempts exceeded (should NOT be found by index)
+  INSERT INTO capacity_request_outbox (capacity_request_id, destination, payload, attempts, max_attempts)
+  VALUES (req_id, 'slack', '{"text":"exhausted"}'::jsonb, 5, 5);
+
+  -- Query using the same condition as the partial index
+  SELECT count(*) INTO pending_count
+  FROM capacity_request_outbox
+  WHERE capacity_request_id = req_id
+    AND delivered_at IS NULL
+    AND attempts < max_attempts
+    AND payload->>'text' IN ('pending', 'delivered', 'exhausted');
+
+  -- Only the 'pending' row should match
+  ASSERT pending_count >= 1,
+    format('Expected at least 1 pending outbox row, got %s', pending_count);
+
+  -- Verify delivered row is excluded
+  ASSERT NOT EXISTS (
+    SELECT 1 FROM capacity_request_outbox
+    WHERE capacity_request_id = req_id
+      AND delivered_at IS NULL
+      AND attempts < max_attempts
+      AND payload->>'text' = 'delivered'
+  ), 'Delivered row should be excluded from undelivered query';
+
+  -- Verify exhausted row is excluded
+  ASSERT NOT EXISTS (
+    SELECT 1 FROM capacity_request_outbox
+    WHERE capacity_request_id = req_id
+      AND delivered_at IS NULL
+      AND attempts < max_attempts
+      AND payload->>'text' = 'exhausted'
+  ), 'Exhausted row should be excluded from undelivered query';
+
+  RAISE NOTICE 'PASS: Test 18 - Outbox delivery mechanics';
+END;
+$$;
+
+-- ============================================================
+-- Test 19: High-cost request requires VP approval
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+BEGIN
+  -- Create request with cost above threshold ($100k > $50k default)
+  req := create_capacity_request(
+    'U_vp1', 'U_comm_vp1', 'infra-vp',
+    '{"org_id": "org_vp1"}'::jsonb,
+    '32XL', 10, 'us-east-1', '2026-12-01'::date, 90,
+    100000, 7  -- $100k cost, no slack channel
+  );
+  ASSERT req.state = 'UNDER_REVIEW', 'Should be UNDER_REVIEW after create';
+
+  -- Apply commercial + technical approval
+  req := apply_capacity_event(req.id, 'COMMERCIAL_APPROVED', 'user', 'U_comm_vp1');
+  ASSERT req.state = 'UNDER_REVIEW', 'Should stay UNDER_REVIEW after commercial approval';
+
+  req := apply_capacity_event(req.id, 'TECH_REVIEW_APPROVED', 'user', 'U_infra_vp1');
+  ASSERT req.state = 'UNDER_REVIEW',
+    format('High-cost request should stay UNDER_REVIEW without VP approval, got %s', req.state);
+
+  -- VP approval should advance to CUSTOMER_CONFIRMATION_REQUIRED
+  req := apply_capacity_event(req.id, 'VP_APPROVED', 'user', 'U_vp_approver');
+  ASSERT req.state = 'CUSTOMER_CONFIRMATION_REQUIRED',
+    format('Expected CUSTOMER_CONFIRMATION_REQUIRED after VP approval, got %s', req.state);
+  ASSERT req.vp_approved_at IS NOT NULL, 'vp_approved_at should be set';
+
+  RAISE NOTICE 'PASS: Test 19 - High-cost request requires VP approval';
+END;
+$$;
+
+-- ============================================================
+-- Test 20: Low-cost request skips VP approval
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+BEGIN
+  -- Create request with cost below threshold ($5k < $50k default)
+  req := create_capacity_request(
+    'U_vp2', 'U_comm_vp2', 'infra-vp2',
+    '{"org_id": "org_vp2"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-12-01'::date, 30,
+    5000, 7  -- $5k cost
+  );
+
+  req := apply_capacity_event(req.id, 'COMMERCIAL_APPROVED', 'user', 'U_comm_vp2');
+  req := apply_capacity_event(req.id, 'TECH_REVIEW_APPROVED', 'user', 'U_infra_vp2');
+
+  ASSERT req.state = 'CUSTOMER_CONFIRMATION_REQUIRED',
+    format('Low-cost request should advance directly, got %s', req.state);
+
+  RAISE NOTICE 'PASS: Test 20 - Low-cost request skips VP';
+END;
+$$;
+
+-- ============================================================
+-- Test 21: NULL cost skips VP approval
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+BEGIN
+  -- Create request with NULL cost (default)
+  req := create_capacity_request(
+    'U_vp3', 'U_comm_vp3', 'infra-vp3',
+    '{"org_id": "org_vp3"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-12-01'::date, 30
+  );
+
+  req := apply_capacity_event(req.id, 'COMMERCIAL_APPROVED', 'user', 'U_comm_vp3');
+  req := apply_capacity_event(req.id, 'TECH_REVIEW_APPROVED', 'user', 'U_infra_vp3');
+
+  ASSERT req.state = 'CUSTOMER_CONFIRMATION_REQUIRED',
+    format('NULL cost request should advance directly, got %s', req.state);
+
+  RAISE NOTICE 'PASS: Test 21 - NULL cost skips VP';
+END;
+$$;
+
+-- ============================================================
+-- Test 22: VP rejection rejects request
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+BEGIN
+  -- Create high-cost request
+  req := create_capacity_request(
+    'U_vp4', 'U_comm_vp4', 'infra-vp4',
+    '{"org_id": "org_vp4"}'::jsonb,
+    '32XL', 5, 'us-east-1', '2026-12-01'::date, 90,
+    100000, 7
+  );
+
+  -- VP rejection from UNDER_REVIEW -> REJECTED
+  req := apply_capacity_event(req.id, 'VP_REJECTED', 'user', 'U_vp_rejector');
+  ASSERT req.state = 'REJECTED',
+    format('Expected REJECTED after VP rejection, got %s', req.state);
+
+  RAISE NOTICE 'PASS: Test 22 - VP rejection rejects request';
+END;
+$$;
+
+-- ============================================================
+-- Test 23: VP approval on non-escalated request still works
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+BEGIN
+  -- Low-cost request, but VP approves anyway (no-op flag)
+  req := create_capacity_request(
+    'U_vp5', 'U_comm_vp5', 'infra-vp5',
+    '{"org_id": "org_vp5"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-12-01'::date, 30,
+    1000, 7  -- $1k cost, well below threshold
+  );
+
+  -- VP_APPROVED while commercial and tech are still pending
+  -- should keep state as UNDER_REVIEW (still need commercial+tech)
+  req := apply_capacity_event(req.id, 'VP_APPROVED', 'user', 'U_vp_approver');
+  ASSERT req.state = 'UNDER_REVIEW',
+    format('Expected UNDER_REVIEW (still needs commercial+tech), got %s', req.state);
+
+  -- Now apply commercial + tech, should advance
+  req := apply_capacity_event(req.id, 'COMMERCIAL_APPROVED', 'user', 'U_comm_vp5');
+  req := apply_capacity_event(req.id, 'TECH_REVIEW_APPROVED', 'user', 'U_infra_vp5');
+  ASSERT req.state = 'CUSTOMER_CONFIRMATION_REQUIRED',
+    format('Expected CUSTOMER_CONFIRMATION_REQUIRED, got %s', req.state);
+
+  RAISE NOTICE 'PASS: Test 23 - VP approval on non-escalated request';
+END;
+$$;
+
+-- ============================================================
+-- Test 24: Observability views return data
+-- ============================================================
+DO $$
+DECLARE
+  row_count integer;
+BEGIN
+  -- v_time_in_state should have rows (we have many requests with multiple events)
+  SELECT count(*) INTO row_count FROM v_time_in_state;
+  ASSERT row_count > 0, format('v_time_in_state should have rows, got %s', row_count);
+
+  -- v_approval_latency should have rows
+  SELECT count(*) INTO row_count FROM v_approval_latency;
+  ASSERT row_count > 0, format('v_approval_latency should have rows, got %s', row_count);
+
+  -- v_request_summary should have one row per request
+  SELECT count(*) INTO row_count FROM v_request_summary;
+  ASSERT row_count > 0, format('v_request_summary should have rows, got %s', row_count);
+
+  -- v_provisioning_duration should have rows (requests that went through provisioning)
+  SELECT count(*) INTO row_count FROM v_provisioning_duration;
+  ASSERT row_count > 0, format('v_provisioning_duration should have rows, got %s', row_count);
+
+  -- v_terminal_state_counts should show counts for terminal states
+  SELECT count(*) INTO row_count FROM v_terminal_state_counts;
+  ASSERT row_count > 0, format('v_terminal_state_counts should have rows, got %s', row_count);
+
+  RAISE NOTICE 'PASS: Test 24 - Observability views return data';
+END;
+$$;
+
+-- ============================================================
 -- Summary
 -- ============================================================
 DO $$

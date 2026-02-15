@@ -80,6 +80,12 @@ body::before {
   color: var(--text);
 }
 
+.topbar-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+}
+
 .topbar-brand svg {
   width: 22px;
   height: 22px;
@@ -166,6 +172,19 @@ body::before {
   max-width: 440px;
   margin: 4rem auto;
   text-align: center;
+}
+
+.auth-logo {
+  width: 64px;
+  height: 64px;
+  border-radius: 12px;
+  margin-bottom: 1rem;
+}
+
+.auth-tagline {
+  color: var(--text-dim) !important;
+  font-size: 0.82rem !important;
+  margin-bottom: 1.25rem !important;
 }
 
 .auth-card h2 {
@@ -683,6 +702,32 @@ body::before {
 
 .stat-value.mono {
   font-family: var(--mono);
+}
+
+/* ─── Footer ──────────────────────────────────── */
+
+.app-footer {
+  margin-top: 2.5rem;
+  padding: 1.25rem 0;
+  border-top: 1px solid var(--border);
+  text-align: center;
+}
+
+.app-footer p {
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  max-width: 600px;
+  margin: 0 auto;
+  line-height: 1.6;
+}
+
+.app-footer code {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--accent);
+  background: var(--accent-dim);
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
 }
 
 /* ─── Utilities ────────────────────────────────── */

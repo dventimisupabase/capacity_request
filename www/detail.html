@@ -40,8 +40,22 @@
 
       <div id="msg"></div>
 
+      <!-- Workflow stepper -->
+      <div class="card fade-in fade-in-1 mb-3" id="stepper-card">
+        <div class="card-header">
+          <h3>Workflow</h3>
+        </div>
+        <div class="card-body">
+          <div id="workflow-stepper"></div>
+          <div id="approval-checks"></div>
+        </div>
+      </div>
+
+      <!-- Operator guidance -->
+      <div id="guidance" class="fade-in fade-in-1"></div>
+
       <!-- Request fields -->
-      <div class="card fade-in fade-in-1 mb-3">
+      <div class="card fade-in fade-in-2 mb-3">
         <div class="card-header">
           <h3>Details</h3>
           <span id="state-badge"></span>
@@ -54,10 +68,10 @@
       </div>
 
       <!-- Action buttons -->
-      <div class="actions fade-in fade-in-2" id="actions"></div>
+      <div class="actions fade-in fade-in-3" id="actions"></div>
 
       <!-- Events timeline -->
-      <div class="fade-in fade-in-3 mt-3">
+      <div class="fade-in fade-in-4 mt-3">
         <div class="section-label">Event Log</div>
         <ul class="timeline" id="timeline">
           <li class="loading">Loading events...</li>
@@ -123,6 +137,18 @@
       }
 
       const r = reqResult.data;
+
+      // Workflow stepper
+      renderStepper(r);
+
+      // Operator guidance
+      const guidance = getGuidance(r);
+      const guidanceEl = document.getElementById('guidance');
+      if (guidance) {
+        guidanceEl.innerHTML = `<div class="guidance-banner ${guidance.style}">${esc(guidance.text)}</div>`;
+      } else {
+        guidanceEl.innerHTML = '';
+      }
 
       // State badge in card header
       document.getElementById('state-badge').innerHTML = `<span class="badge badge-${r.state}">${fmtState(r.state)}</span>`;
@@ -224,6 +250,141 @@
 
     function fmtState(s) {
       return (s || '').replace(/_/g, ' ');
+    }
+
+    function renderStepper(r) {
+      const stages = [
+        { key: 'SUBMITTED', label: 'Submitted' },
+        { key: 'UNDER_REVIEW', label: 'Under Review' },
+        { key: 'CUSTOMER_CONFIRMATION_REQUIRED', label: 'Confirming' },
+        { key: 'PROVISIONING', label: 'Provisioning' },
+        { key: 'COMPLETED', label: 'Completed' }
+      ];
+      const terminal = { REJECTED: 'Rejected', CANCELLED: 'Cancelled', EXPIRED: 'Expired', FAILED: 'Failed' };
+      const stageOrder = stages.map(s => s.key);
+      const state = r.state;
+      const isTerminal = state in terminal;
+
+      // Find which stage we branched from for terminal states
+      let terminalFrom = -1;
+      if (state === 'REJECTED') terminalFrom = stageOrder.indexOf('UNDER_REVIEW');
+      else if (state === 'EXPIRED' || state === 'CANCELLED') terminalFrom = stageOrder.indexOf('CUSTOMER_CONFIRMATION_REQUIRED');
+      else if (state === 'FAILED') terminalFrom = stageOrder.indexOf('PROVISIONING');
+
+      // For CANCELLED, it could be from any active stage — check what makes sense
+      if (state === 'CANCELLED') {
+        // Use the last known active stage based on approval flags
+        if (r.commercial_approved_at && r.technical_approved_at) terminalFrom = stageOrder.indexOf('CUSTOMER_CONFIRMATION_REQUIRED');
+        else if (r.commercial_approved_at || r.technical_approved_at) terminalFrom = stageOrder.indexOf('UNDER_REVIEW');
+        else terminalFrom = stageOrder.indexOf('SUBMITTED');
+      }
+
+      const currentIdx = stageOrder.indexOf(state);
+
+      let html = '<div class="stepper">';
+      stages.forEach((stage, i) => {
+        let nodeClass = 'stepper-node';
+        let labelClass = 'stepper-label';
+
+        if (!isTerminal) {
+          if (i < currentIdx) { nodeClass += ' completed'; labelClass += ' completed'; }
+          else if (i === currentIdx) { nodeClass += ' active'; labelClass += ' active'; }
+        } else {
+          // Terminal: everything up to terminalFrom is completed, terminalFrom itself is failed
+          if (i < terminalFrom) { nodeClass += ' completed'; labelClass += ' completed'; }
+          else if (i === terminalFrom) { nodeClass += ' failed'; labelClass += ' failed'; }
+        }
+
+        // Leading connector (skip for first)
+        const connClass = i === 0 ? 'invisible' :
+          (!isTerminal && i <= currentIdx) || (isTerminal && i <= terminalFrom) ? 'completed' : '';
+
+        html += '<div class="stepper-stage">';
+        html += '<div class="stepper-row">';
+        html += `<div class="stepper-connector ${connClass}"></div>`;
+
+        // Node icon
+        let icon = i + 1;
+        if (nodeClass.includes('completed')) icon = '\u2713';
+        else if (nodeClass.includes('active')) icon = '\u25CF';
+        else if (nodeClass.includes('failed')) icon = '\u2717';
+
+        html += `<div class="${nodeClass}">${icon}</div>`;
+
+        // Trailing connector (skip for last)
+        const trailClass = i === stages.length - 1 ? 'invisible' :
+          (!isTerminal && i < currentIdx) || (isTerminal && i < terminalFrom) ? 'completed' : '';
+        html += `<div class="stepper-connector ${trailClass}"></div>`;
+
+        html += '</div>'; // stepper-row
+        html += `<div class="${labelClass}">${stage.label}</div>`;
+        html += '</div>'; // stepper-stage
+      });
+      html += '</div>';
+
+      // Terminal state indicator below
+      if (isTerminal) {
+        html += `<div style="text-align:center;margin-top:0.5rem;"><span class="badge badge-${state}">${terminal[state]}</span></div>`;
+      }
+
+      document.getElementById('workflow-stepper').innerHTML = html;
+
+      // Approval sub-checks for UNDER_REVIEW
+      const checksEl = document.getElementById('approval-checks');
+      if (state === 'UNDER_REVIEW' || (isTerminal && terminalFrom >= stageOrder.indexOf('UNDER_REVIEW'))) {
+        const vpRequired = r.estimated_monthly_cost_usd != null && r.estimated_monthly_cost_usd >= 50000;
+        let checks = '';
+        checks += apprCheck('Commercial', r.commercial_approved_at);
+        checks += apprCheck('Technical', r.technical_approved_at);
+        if (vpRequired) checks += apprCheck('VP', r.vp_approved_at);
+        checksEl.innerHTML = '<div class="approval-checks">' + checks + '</div>';
+      } else {
+        checksEl.innerHTML = '';
+      }
+    }
+
+    function apprCheck(label, ts) {
+      const done = ts != null;
+      return `<div class="approval-check"><span class="check-icon ${done ? 'done' : 'pending'}">${done ? '\u2713' : '\u00B7'}</span>${label} ${done ? 'Approved' : 'Pending'}</div>`;
+    }
+
+    function getGuidance(r) {
+      const state = r.state;
+      const vpRequired = r.estimated_monthly_cost_usd != null && r.estimated_monthly_cost_usd >= 50000;
+      const commDone = r.commercial_approved_at != null;
+      const techDone = r.technical_approved_at != null;
+      const vpDone = r.vp_approved_at != null;
+
+      switch (state) {
+        case 'SUBMITTED':
+          return { text: 'This request was just created and is being routed for review.', style: 'guidance-info' };
+        case 'UNDER_REVIEW':
+          if (!commDone && !techDone)
+            return { text: 'Awaiting commercial and technical review. Commercial owner and infra team should review and approve or reject.', style: 'guidance-info' };
+          if (commDone && !techDone)
+            return { text: 'Commercial review complete. Awaiting technical review from the infrastructure team.', style: 'guidance-info' };
+          if (!commDone && techDone)
+            return { text: 'Technical review complete. Awaiting commercial review from the commercial owner.', style: 'guidance-info' };
+          if (commDone && techDone && vpRequired && !vpDone)
+            return { text: `Commercial and technical reviews approved. Awaiting VP approval due to cost exceeding escalation threshold ($${Number(r.estimated_monthly_cost_usd).toLocaleString()}/mo).`, style: 'guidance-info' };
+          return { text: 'All reviews in progress.', style: 'guidance-info' };
+        case 'CUSTOMER_CONFIRMATION_REQUIRED':
+          return { text: `All approvals received. Customer must confirm they still need this capacity.${r.next_deadline_at ? ' Deadline: ' + fmtDate(r.next_deadline_at) + '.' : ''} After that, the request will automatically expire.`, style: 'guidance-info' };
+        case 'PROVISIONING':
+          return { text: 'Customer confirmed. An operator should now provision the requested infrastructure in Admin Studio (or your provisioning system). When done, call the provisioning webhook with status "complete" or "failed".', style: 'guidance-info' };
+        case 'COMPLETED':
+          return { text: 'This request has been fulfilled. Infrastructure has been provisioned.', style: 'guidance-success' };
+        case 'REJECTED':
+          return { text: 'This request was rejected during review.', style: 'guidance-error' };
+        case 'CANCELLED':
+          return { text: 'This request was cancelled.', style: 'guidance-muted' };
+        case 'EXPIRED':
+          return { text: 'Customer did not confirm within the deadline. This request has expired.', style: 'guidance-error' };
+        case 'FAILED':
+          return { text: 'Provisioning failed. Review the error details and consider creating a new request.', style: 'guidance-error' };
+        default:
+          return null;
+      }
     }
 
     init();

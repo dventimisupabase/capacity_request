@@ -1832,6 +1832,338 @@ END;
 $$;
 
 -- ============================================================
+-- Test 50: build_workflow_mrkdwn returns pipeline for UNDER_REVIEW
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  mrkdwn text;
+BEGIN
+  req := create_capacity_request(
+    'U_wf1', 'U_comm_wf1', 'infra-wf1',
+    '{"org_id": "org_wf1", "name": "Workflow Corp"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30,
+    5000, 7, 'C_WF1'
+  );
+
+  mrkdwn := build_workflow_mrkdwn(req, 'UNDER_REVIEW');
+
+  ASSERT mrkdwn IS NOT NULL, 'Workflow mrkdwn should not be NULL';
+  ASSERT mrkdwn LIKE '%Submitted%', format('Should contain Submitted, got: %s', mrkdwn);
+  ASSERT mrkdwn LIKE '%Under Review%', format('Should contain Under Review, got: %s', mrkdwn);
+  ASSERT mrkdwn LIKE '%Confirming%', format('Should contain Confirming, got: %s', mrkdwn);
+  ASSERT mrkdwn LIKE '%Provisioning%', format('Should contain Provisioning, got: %s', mrkdwn);
+  ASSERT mrkdwn LIKE '%Completed%', format('Should contain Completed, got: %s', mrkdwn);
+  -- Should have approval sub-bullets
+  ASSERT mrkdwn LIKE '%Commercial Pending%', format('Should show Commercial Pending, got: %s', mrkdwn);
+  ASSERT mrkdwn LIKE '%Technical Pending%', format('Should show Technical Pending, got: %s', mrkdwn);
+
+  RAISE NOTICE 'PASS: Test 50 - build_workflow_mrkdwn for UNDER_REVIEW';
+END;
+$$;
+
+-- ============================================================
+-- Test 51: build_workflow_mrkdwn shows approval progress
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  mrkdwn text;
+BEGIN
+  req := create_capacity_request(
+    'U_wf2', 'U_comm_wf2', 'infra-wf2',
+    '{"org_id": "org_wf2"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30,
+    5000, 7, 'C_WF2'
+  );
+
+  -- Approve commercial
+  req := apply_capacity_event(req.id, 'COMMERCIAL_APPROVED', 'user', 'U_comm_wf2');
+
+  mrkdwn := build_workflow_mrkdwn(req, 'UNDER_REVIEW');
+
+  ASSERT mrkdwn LIKE '%Commercial Approved%', format('Should show Commercial Approved, got: %s', mrkdwn);
+  ASSERT mrkdwn LIKE '%Technical Pending%', format('Should show Technical Pending, got: %s', mrkdwn);
+
+  RAISE NOTICE 'PASS: Test 51 - build_workflow_mrkdwn shows approval progress';
+END;
+$$;
+
+-- ============================================================
+-- Test 52: build_workflow_mrkdwn for terminal state (COMPLETED)
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  mrkdwn text;
+BEGIN
+  req := create_capacity_request(
+    'U_wf3', 'U_comm_wf3', 'infra-wf3',
+    '{"org_id": "org_wf3"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30,
+    5000, 7, 'C_WF3'
+  );
+  req := apply_capacity_event(req.id, 'COMMERCIAL_APPROVED', 'user', 'U_comm_wf3');
+  req := apply_capacity_event(req.id, 'TECH_REVIEW_APPROVED', 'user', 'U_infra_wf3');
+  req := apply_capacity_event(req.id, 'CUSTOMER_CONFIRMED', 'user', 'U_customer_wf3');
+  req := apply_capacity_event(req.id, 'PROVISIONING_COMPLETE', 'system', 'provisioner');
+  ASSERT req.state = 'COMPLETED', 'Setup failed';
+
+  mrkdwn := build_workflow_mrkdwn(req, 'COMPLETED');
+
+  ASSERT mrkdwn IS NOT NULL, 'Should not be NULL for COMPLETED';
+  ASSERT mrkdwn LIKE '%Completed%', format('Should contain Completed, got: %s', mrkdwn);
+
+  RAISE NOTICE 'PASS: Test 52 - build_workflow_mrkdwn for COMPLETED';
+END;
+$$;
+
+-- ============================================================
+-- Test 53: build_workflow_mrkdwn for REJECTED shows terminal indicator
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  mrkdwn text;
+BEGIN
+  req := create_capacity_request(
+    'U_wf4', 'U_comm_wf4', 'infra-wf4',
+    '{"org_id": "org_wf4"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30,
+    5000, 7, 'C_WF4'
+  );
+  req := apply_capacity_event(req.id, 'COMMERCIAL_REJECTED', 'user', 'U_comm_wf4');
+  ASSERT req.state = 'REJECTED', 'Setup failed';
+
+  mrkdwn := build_workflow_mrkdwn(req, 'REJECTED');
+
+  ASSERT mrkdwn LIKE '%REJECTED%', format('Should contain REJECTED, got: %s', mrkdwn);
+
+  RAISE NOTICE 'PASS: Test 53 - build_workflow_mrkdwn for REJECTED';
+END;
+$$;
+
+-- ============================================================
+-- Test 54: build_workflow_mrkdwn includes VP sub-bullet for high-cost
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  mrkdwn text;
+BEGIN
+  req := create_capacity_request(
+    'U_wf5', 'U_comm_wf5', 'infra-wf5',
+    '{"org_id": "org_wf5"}'::jsonb,
+    '32XL', 10, 'us-east-1', '2026-03-01'::date, 90,
+    100000, 7, 'C_WF5'
+  );
+
+  mrkdwn := build_workflow_mrkdwn(req, 'UNDER_REVIEW');
+
+  ASSERT mrkdwn LIKE '%VP Pending%', format('High-cost request should show VP Pending, got: %s', mrkdwn);
+
+  RAISE NOTICE 'PASS: Test 54 - build_workflow_mrkdwn includes VP for high-cost';
+END;
+$$;
+
+-- ============================================================
+-- Test 55: get_operator_guidance returns correct text per state
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  guidance text;
+BEGIN
+  req := create_capacity_request(
+    'U_og1', 'U_comm_og1', 'infra-og1',
+    '{"org_id": "org_og1"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30,
+    5000, 7, 'C_OG1'
+  );
+
+  -- UNDER_REVIEW with no approvals
+  guidance := get_operator_guidance(req, 'UNDER_REVIEW');
+  ASSERT guidance LIKE '%commercial and technical%',
+    format('UNDER_REVIEW no-approvals guidance wrong: %s', guidance);
+
+  -- Commercial approved
+  req := apply_capacity_event(req.id, 'COMMERCIAL_APPROVED', 'user', 'U_comm_og1');
+  guidance := get_operator_guidance(req, 'UNDER_REVIEW');
+  ASSERT guidance LIKE '%Commercial review complete%',
+    format('UNDER_REVIEW commercial-done guidance wrong: %s', guidance);
+
+  -- Both approved -> CUSTOMER_CONFIRMATION_REQUIRED
+  req := apply_capacity_event(req.id, 'TECH_REVIEW_APPROVED', 'user', 'U_infra_og1');
+  guidance := get_operator_guidance(req, 'CUSTOMER_CONFIRMATION_REQUIRED');
+  ASSERT guidance LIKE '%Customer must confirm%',
+    format('CUSTOMER_CONFIRMATION guidance wrong: %s', guidance);
+
+  -- Customer confirms -> PROVISIONING
+  req := apply_capacity_event(req.id, 'CUSTOMER_CONFIRMED', 'user', 'U_customer_og1');
+  guidance := get_operator_guidance(req, 'PROVISIONING');
+  ASSERT guidance LIKE '%Admin Studio%',
+    format('PROVISIONING guidance should mention Admin Studio: %s', guidance);
+
+  -- Complete
+  req := apply_capacity_event(req.id, 'PROVISIONING_COMPLETE', 'system', 'provisioner');
+  guidance := get_operator_guidance(req, 'COMPLETED');
+  ASSERT guidance LIKE '%fulfilled%',
+    format('COMPLETED guidance wrong: %s', guidance);
+
+  RAISE NOTICE 'PASS: Test 55 - get_operator_guidance returns correct text per state';
+END;
+$$;
+
+-- ============================================================
+-- Test 56: get_operator_guidance for VP-pending high-cost request
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  guidance text;
+BEGIN
+  req := create_capacity_request(
+    'U_og2', 'U_comm_og2', 'infra-og2',
+    '{"org_id": "org_og2"}'::jsonb,
+    '32XL', 10, 'us-east-1', '2026-03-01'::date, 90,
+    100000, 7, 'C_OG2'
+  );
+
+  req := apply_capacity_event(req.id, 'COMMERCIAL_APPROVED', 'user', 'U_comm_og2');
+  req := apply_capacity_event(req.id, 'TECH_REVIEW_APPROVED', 'user', 'U_infra_og2');
+  ASSERT req.state = 'UNDER_REVIEW', 'High-cost should stay UNDER_REVIEW without VP';
+
+  guidance := get_operator_guidance(req, 'UNDER_REVIEW');
+  ASSERT guidance LIKE '%VP approval%',
+    format('Should mention VP approval for high-cost: %s', guidance);
+
+  RAISE NOTICE 'PASS: Test 56 - get_operator_guidance for VP-pending high-cost';
+END;
+$$;
+
+-- ============================================================
+-- Test 57: get_operator_guidance for terminal states
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  guidance text;
+BEGIN
+  -- REJECTED
+  req := create_capacity_request(
+    'U_og3', 'U_comm_og3', 'infra-og3',
+    '{"org_id": "org_og3"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30,
+    5000, 7
+  );
+  req := apply_capacity_event(req.id, 'COMMERCIAL_REJECTED', 'user', 'U_comm_og3');
+  guidance := get_operator_guidance(req, 'REJECTED');
+  ASSERT guidance LIKE '%rejected%', format('REJECTED guidance wrong: %s', guidance);
+
+  -- EXPIRED
+  req := create_capacity_request(
+    'U_og4', 'U_comm_og4', 'infra-og4',
+    '{"org_id": "org_og4"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30,
+    5000, 7
+  );
+  req := apply_capacity_event(req.id, 'COMMERCIAL_APPROVED', 'user', 'U_comm_og4');
+  req := apply_capacity_event(req.id, 'TECH_REVIEW_APPROVED', 'user', 'U_infra_og4');
+  req := apply_capacity_event(req.id, 'CUSTOMER_CONFIRMATION_TIMEOUT', 'cron', 'pg_cron_timer');
+  guidance := get_operator_guidance(req, 'EXPIRED');
+  ASSERT guidance LIKE '%expired%', format('EXPIRED guidance wrong: %s', guidance);
+
+  -- FAILED
+  req := create_capacity_request(
+    'U_og5', 'U_comm_og5', 'infra-og5',
+    '{"org_id": "org_og5"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30,
+    5000, 7
+  );
+  req := apply_capacity_event(req.id, 'COMMERCIAL_APPROVED', 'user', 'U_comm_og5');
+  req := apply_capacity_event(req.id, 'TECH_REVIEW_APPROVED', 'user', 'U_infra_og5');
+  req := apply_capacity_event(req.id, 'CUSTOMER_CONFIRMED', 'user', 'U_customer_og5');
+  req := apply_capacity_event(req.id, 'PROVISIONING_FAILED', 'system', 'provisioner');
+  guidance := get_operator_guidance(req, 'FAILED');
+  ASSERT guidance LIKE '%failed%', format('FAILED guidance wrong: %s', guidance);
+
+  RAISE NOTICE 'PASS: Test 57 - get_operator_guidance for terminal states';
+END;
+$$;
+
+-- ============================================================
+-- Test 58: Block Kit message includes workflow pipeline section
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  kit jsonb;
+  has_pipeline boolean := false;
+  b jsonb;
+BEGIN
+  req := create_capacity_request(
+    'U_bkw1', 'U_comm_bkw1', 'infra-bkw1',
+    '{"org_id": "org_bkw1"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30,
+    5000, 7, 'C_BKW1'
+  );
+
+  kit := build_block_kit_message(req, 'SUBMITTED', 'UNDER_REVIEW', 'REQUEST_SUBMITTED', 'U_bkw1');
+  ASSERT kit IS NOT NULL, 'Block Kit should not be NULL';
+
+  -- Check that blocks contain the workflow pipeline text
+  FOR b IN SELECT * FROM jsonb_array_elements(kit->'blocks')
+  LOOP
+    IF b->>'type' = 'section' AND b->'text'->>'text' LIKE '%Submitted%Under Review%' THEN
+      has_pipeline := true;
+    END IF;
+  END LOOP;
+
+  ASSERT has_pipeline, 'Block Kit should contain workflow pipeline section';
+
+  RAISE NOTICE 'PASS: Test 58 - Block Kit includes workflow pipeline section';
+END;
+$$;
+
+-- ============================================================
+-- Test 59: Block Kit message includes guidance context block
+-- ============================================================
+DO $$
+DECLARE
+  req capacity_requests;
+  kit jsonb;
+  has_guidance boolean := false;
+  b jsonb;
+BEGIN
+  req := create_capacity_request(
+    'U_bkw2', 'U_comm_bkw2', 'infra-bkw2',
+    '{"org_id": "org_bkw2"}'::jsonb,
+    '32XL', 1, 'us-east-1', '2026-03-01'::date, 30,
+    5000, 7, 'C_BKW2'
+  );
+
+  kit := build_block_kit_message(req, 'SUBMITTED', 'UNDER_REVIEW', 'REQUEST_SUBMITTED', 'U_bkw2');
+
+  FOR b IN SELECT * FROM jsonb_array_elements(kit->'blocks')
+  LOOP
+    IF b->>'type' = 'context' THEN
+      -- Check if any element contains guidance text
+      IF EXISTS (
+        SELECT 1 FROM jsonb_array_elements(b->'elements') e
+        WHERE e->>'text' LIKE '%commercial and technical%'
+      ) THEN
+        has_guidance := true;
+      END IF;
+    END IF;
+  END LOOP;
+
+  ASSERT has_guidance, 'Block Kit should contain operator guidance context block';
+
+  RAISE NOTICE 'PASS: Test 59 - Block Kit includes guidance context block';
+END;
+$$;
+
+-- ============================================================
 -- Summary
 -- ============================================================
 DO $$

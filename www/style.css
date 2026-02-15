@@ -762,3 +762,177 @@ body::before {
 }
 
 .loading { animation: pulse 1.5s ease-in-out infinite; color: var(--text-dim); }
+
+/* ─── Workflow Stepper ────────────────────────── */
+
+.stepper {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+  overflow-x: auto;
+  padding: 1rem 0.5rem 0.5rem;
+}
+
+.stepper-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.stepper-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.stepper-connector {
+  flex: 1;
+  height: 2px;
+  background: var(--border);
+  min-width: 8px;
+}
+
+.stepper-connector.completed {
+  background: var(--success);
+}
+
+.stepper-connector.invisible {
+  visibility: hidden;
+}
+
+.stepper-node {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  font-weight: 700;
+  border: 2px solid var(--border);
+  background: var(--surface);
+  color: var(--text-dim);
+  transition: all 0.3s;
+}
+
+.stepper-node.completed {
+  border-color: var(--success);
+  background: var(--success-dim);
+  color: var(--success);
+}
+
+.stepper-node.active {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+  color: var(--accent);
+  box-shadow: 0 0 12px var(--accent-glow), 0 0 24px rgba(245, 158, 11, 0.1);
+  animation: stepperPulse 2s ease-in-out infinite;
+}
+
+.stepper-node.failed {
+  border-color: var(--danger);
+  background: var(--danger-dim);
+  color: var(--danger);
+}
+
+.stepper-label {
+  margin-top: 0.4rem;
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.stepper-label.completed { color: var(--success); }
+.stepper-label.active    { color: var(--accent); }
+.stepper-label.failed    { color: var(--danger); }
+
+@keyframes stepperPulse {
+  0%, 100% { box-shadow: 0 0 12px var(--accent-glow), 0 0 24px rgba(245, 158, 11, 0.1); }
+  50%      { box-shadow: 0 0 18px var(--accent-glow), 0 0 36px rgba(245, 158, 11, 0.2); }
+}
+
+/* Approval sub-checks shown below stepper for UNDER_REVIEW */
+.approval-checks {
+  display: flex;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+  padding: 0.75rem 0 0;
+  margin-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+.approval-check {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.approval-check .check-icon {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.6rem;
+  font-weight: 700;
+}
+
+.approval-check .check-icon.done {
+  background: var(--success-dim);
+  color: var(--success);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.approval-check .check-icon.pending {
+  background: var(--surface-2);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+}
+
+/* Operator guidance banner */
+.guidance-banner {
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius);
+  font-size: 0.85rem;
+  line-height: 1.5;
+  margin-bottom: 1rem;
+  border: 1px solid transparent;
+}
+
+.guidance-info {
+  background: var(--info-dim);
+  color: var(--info);
+  border-color: rgba(56, 189, 248, 0.2);
+}
+
+.guidance-success {
+  background: var(--success-dim);
+  color: #4ade80;
+  border-color: rgba(34, 197, 94, 0.2);
+}
+
+.guidance-error {
+  background: var(--danger-dim);
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.2);
+}
+
+.guidance-muted {
+  background: #1e1e2e;
+  color: #8888a0;
+  border-color: rgba(42, 42, 58, 0.5);
+}

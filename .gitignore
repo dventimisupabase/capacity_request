@@ -9,10 +9,6 @@ node_modules/
 .env.*
 !.env.example
 
-# Cloudflare Worker
-worker/.wrangler/
-worker/dist/
-
 # OS
 .DS_Store
 Thumbs.db

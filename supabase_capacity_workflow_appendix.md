@@ -550,7 +550,9 @@ curl -X POST 'https://<project>.supabase.co/rest/v1/rpc/apply_capacity_event' \
 
 ### 5.3 Slack proxy (the one external component)
 
-Slack posts slash commands and interactive payloads as `application/x-www-form-urlencoded`. PostgREST does not accept that content type directly, but it does accept `text/plain` for functions with a **single unnamed `text` parameter** — passing the raw request body as `$1`. A **minimal Cloudflare Worker** (~15 lines) exploits this:
+Slack posts slash commands and interactive payloads as `application/x-www-form-urlencoded`. PostgREST does accept that content type for [table/view INSERTs](https://docs.postgrest.org/en/v14/references/api/tables_views.html#x-www-form-urlencoded), but not for RPC functions. We could use a view with an `INSTEAD OF INSERT` trigger to avoid a proxy entirely, but PostgREST would parse the form fields into columns before our code runs — losing the raw body needed for Slack HMAC signature verification (URL encoding is not deterministic, so the original bytes cannot be reconstructed).
+
+Instead, we use PostgREST's support for [functions with a single unnamed `text` parameter](https://docs.postgrest.org/en/v14/references/api/functions.html#functions-with-a-single-unnamed-parameter), which passes the raw request body as `$1` when `Content-Type: text/plain` is set. A **minimal Cloudflare Worker** (~15 lines) bridges the gap:
 
 1. Receives the form-encoded POST from Slack.
 2. Rewrites the `Content-Type` header to `text/plain`.

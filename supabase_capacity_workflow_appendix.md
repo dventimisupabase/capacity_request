@@ -550,48 +550,58 @@ curl -X POST 'https://<project>.supabase.co/rest/v1/rpc/apply_capacity_event' \
 
 ### 5.3 Slack proxy (the one external component)
 
-Slack posts slash commands and interactive payloads as `application/x-www-form-urlencoded`. PostgREST expects `application/json`. A **minimal Cloudflare Worker** (~25 lines) bridges this gap:
+Slack posts slash commands and interactive payloads as `application/x-www-form-urlencoded`. PostgREST does not accept that content type directly, but it does accept `text/plain` for functions with a **single unnamed `text` parameter** — passing the raw request body as `$1`. A **minimal Cloudflare Worker** (~15 lines) exploits this:
 
 1. Receives the form-encoded POST from Slack.
-2. Parses the form body into a JSON object.
-3. Forwards it as `Content-Type: application/json` to the PostgREST RPC endpoint.
+2. Rewrites the `Content-Type` header to `text/plain`.
+3. Forwards the raw body **unchanged** to the PostgREST RPC endpoint.
 4. Returns Slack's required immediate `200 OK` response.
 
-The proxy does **zero business logic** — all state management, signature verification, authorization, side effects, and lifecycle enforcement remain in Postgres.
+The proxy does no parsing, no JSON conversion, and **zero business logic**. All state management, signature verification, authorization, side effects, and lifecycle enforcement remain in Postgres. The raw body arriving intact in the PL/pgSQL function is also exactly what Slack signature verification requires.
 
 #### Slack webhook receiver (PL/pgSQL)
 
-The proxy forwards to this function, which handles both slash commands and interactive payloads:
+PostgREST routes `POST /rest/v1/rpc/handle_slack_webhook` with `Content-Type: text/plain` to a function with a single unnamed `text` parameter. The raw form-encoded body arrives as `$1`:
 
 ```sql
-CREATE FUNCTION handle_slack_webhook(payload jsonb) RETURNS json AS $$
+CREATE FUNCTION handle_slack_webhook(text) RETURNS json AS $$
 DECLARE
-  raw_body    text;
+  raw_body    text := $1;
   sig         text;
   ts          text;
+  params      jsonb;
+  payload     jsonb;
   action      text;
   user_id     text;
   request_id  text;
   req         capacity_requests;
 BEGIN
   -- Verify Slack request signature (see Section 8)
-  raw_body := current_setting('request.headers', true)::json->>'x-raw-body';
-  sig      := current_setting('request.headers', true)::json->>'x-slack-signature';
-  ts       := current_setting('request.headers', true)::json->>'x-slack-request-timestamp';
+  sig := current_setting('request.headers', true)::json->>'x-slack-signature';
+  ts  := current_setting('request.headers', true)::json->>'x-slack-request-timestamp';
 
   IF NOT verify_slack_signature(raw_body, ts, sig) THEN
     RAISE EXCEPTION 'Invalid Slack signature';
   END IF;
 
+  -- Parse form-encoded body into key-value pairs
+  -- e.g., "command=%2Fcapacity&text=create+32XL&user_id=U123&channel_id=C456"
+  SELECT jsonb_object_agg(
+    split_part(kv, '=', 1),
+    regexp_replace(url_decode(split_part(kv, '=', 2)), '\+', ' ', 'g')
+  ) INTO params
+  FROM unnest(string_to_array(raw_body, '&')) AS kv;
+
   -- Route based on payload type
-  IF payload ? 'command' THEN
+  IF params ? 'command' THEN
     -- Slash command: /capacity create 32XL us-east-1 ...
-    -- Parse and call create_capacity_request()
+    -- Parse params->>'text' and call create_capacity_request()
     -- (parsing logic depends on command format)
     RETURN json_build_object('response_type', 'in_channel', 'text', 'Request created: ' || req.id);
 
-  ELSIF payload ? 'actions' THEN
-    -- Interactive payload (button click)
+  ELSIF params ? 'payload' THEN
+    -- Interactive payload (button click): the 'payload' field is URL-encoded JSON
+    payload    := (params->>'payload')::jsonb;
     action     := payload->'actions'->0->>'action_id';
     user_id    := payload->'user'->>'id';
     request_id := payload->'actions'->0->>'value';
@@ -606,7 +616,46 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 ```
 
-### 5.4 Request header access
+### 5.4 Pre-request hook (header-level gating)
+
+PostgREST supports a [pre-request function](https://docs.postgrest.org/en/v14/references/transactions.html#pre-request) that runs after transaction-scoped settings are set but before the main query. It has access to request headers, path, and method via GUCs — but **not** the request body. We use it for fast rejection of obviously invalid Slack requests before the main function runs:
+
+```sql
+CREATE FUNCTION check_request() RETURNS void AS $$
+DECLARE
+  headers json := current_setting('request.headers', true)::json;
+  path    text := current_setting('request.path', true);
+  ts      text;
+BEGIN
+  -- Only gate Slack webhook routes
+  IF path = '/rpc/handle_slack_webhook' THEN
+    -- Require signature headers
+    IF headers->>'x-slack-signature' IS NULL
+       OR headers->>'x-slack-request-timestamp' IS NULL THEN
+      RAISE EXCEPTION 'Missing Slack signature headers'
+        USING HINT = 'Provide X-Slack-Signature and X-Slack-Request-Timestamp';
+    END IF;
+
+    -- Replay protection: reject if timestamp is > 5 minutes old
+    ts := headers->>'x-slack-request-timestamp';
+    IF abs(extract(epoch FROM now()) - ts::bigint) > 300 THEN
+      RAISE EXCEPTION 'Slack request timestamp too old'
+        USING HINT = 'Possible replay attack';
+    END IF;
+  END IF;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+Configured via PostgREST's `db-pre-request` setting:
+
+```
+db-pre-request = "check_request"
+```
+
+This rejects stale and unsigned requests before the main function runs — saving a row lock and Vault lookup. The full HMAC verification (which requires the request body) remains in `handle_slack_webhook` (Section 5.3), since there is no `request.body` GUC.
+
+### 5.5 Request header access
 
 PostgREST exposes all HTTP request headers as a GUC variable, accessible inside PL/pgSQL:
 
@@ -615,10 +664,10 @@ PostgREST exposes all HTTP request headers as a GUC variable, accessible inside 
 SELECT current_setting('request.headers', true)::json;
 
 -- Specific header (always lowercase)
-SELECT current_setting('request.headers', true)::json->>'authorization';
+SELECT current_setting('request.headers', true)::json->>'x-slack-signature';
 ```
 
-The Slack proxy forwards the original `X-Slack-Signature` and `X-Slack-Request-Timestamp` headers, plus an `X-Raw-Body` header containing the original form-encoded body for signature verification.
+The Slack proxy forwards the original `X-Slack-Signature` and `X-Slack-Request-Timestamp` headers unchanged. No `X-Raw-Body` header is needed — the raw body IS the function argument.
 
 ---
 
@@ -706,7 +755,12 @@ For at-least-once delivery guarantees, adopt a transactional outbox pattern:
 
 ### 8.2 Slack request signature verification
 
-Slack signs every request with HMAC-SHA256. The signing secret is stored in Vault; verification runs in PL/pgSQL using pgcrypto:
+Slack signs every request with HMAC-SHA256. Verification is two-layered:
+
+1. **Pre-request hook** (Section 5.4) — rejects requests with missing headers or stale timestamps. Header-only; no Vault access needed.
+2. **`verify_slack_signature`** — full HMAC verification using the request body. Runs inside `handle_slack_webhook`.
+
+The signing secret is stored in Vault; HMAC verification runs in PL/pgSQL using pgcrypto:
 
 ```sql
 CREATE FUNCTION verify_slack_signature(
@@ -719,10 +773,8 @@ DECLARE
   base_string    text;
   computed_sig   text;
 BEGIN
-  -- Replay protection: reject if timestamp is > 5 minutes old
-  IF abs(extract(epoch FROM now()) - timestamp_::bigint) > 300 THEN
-    RETURN false;
-  END IF;
+  -- Timestamp replay protection is handled by the pre-request hook (Section 5.4).
+  -- This function focuses on the HMAC, which requires the request body.
 
   signing_secret := get_secret('SLACK_SIGNING_SECRET');
   base_string    := 'v0:' || timestamp_ || ':' || raw_body;
@@ -761,7 +813,7 @@ All metrics are queryable directly from the event log without additional infrast
 - Enable extensions: `pg_net`, `pgcrypto`, `pg_cron`. Provision secrets in Vault.
 - Postgres schema: tables, enums, sequence, indexes, RLS policies, grants.
 - PL/pgSQL functions: `create_capacity_request`, `apply_capacity_event`, `compute_next_state`, `dispatch_side_effects`, `verify_slack_signature`, `handle_slack_webhook`.
-- Slack proxy: Cloudflare Worker (~25 lines) for form-encoded → JSON translation.
+- Slack proxy: Cloudflare Worker (~15 lines) that rewrites `Content-Type` to `text/plain` and forwards the raw body.
 - Slack integration: slash command to create requests, interactive buttons for approvals and customer confirmation, thread updates via pg_net.
 - pg_cron timer: 5-minute sweep for expired deadlines.
 

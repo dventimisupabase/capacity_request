@@ -33,6 +33,9 @@
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+h1, h2, h3, h4, h5, h6, label, nav, .btn, .badge, .stepper, .page-header,
+.card-header, .detail-label, .stat-label, .filter-bar { user-select: none; }
+
 body {
   font-family: var(--sans);
   background: var(--bg);
@@ -69,6 +72,7 @@ body::before {
   padding: 1rem 0;
   border-bottom: 1px solid var(--border);
   margin-bottom: 2rem;
+  user-select: none;
 }
 
 .topbar-brand {
